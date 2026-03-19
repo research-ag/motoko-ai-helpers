@@ -13,7 +13,7 @@ type: reference
 1) Versions
 - Ensure dfx 0.28+
 - Confirm repo compiles before starting
-- In mops.toml add core = "2.1.0"
+- In mops.toml add core = "2.2.0"
 - update moc in mops.toml to "1.3.0" in [toolchain] and [requirements] sections.
 - if wasmtime is present in mops.toml, upgrade it to at least "40.0.0"
 - Do NOT remove base dependency until Phase 5 is completed
@@ -59,7 +59,7 @@ Acceptance Criteria:
 ## Prerequisites
 
 mops.toml (dependency staging)
-- Add: core = "2.1.0"
+- Add: core = "2.2.0"
 - Keep base dependency present until Phase 5 is complete
 
 dfx.json (per canister)
@@ -124,7 +124,7 @@ Common mappings:
 - Array.freeze(arr) → Array.fromVarArray(arr)
 - Array.thaw(arr) → Array.toVarArray(arr)
 - Array.slice(a,s,e) → Array.range(a,s,e)
-- Array.subArray(a,s,l) → Array.sliceToArray(a,s,l + 1)
+- Array.subArray(a, s, l) → Array.sliceToArray(a, s, s + l)
 - Array.make(x) → Array.singleton(x)
 - Array.mapFilter → Array.filterMap
 - Array.chain → Array.flatMap
@@ -156,7 +156,6 @@ Audit:
 
 - Map is MUTABLE; Map.add(map, compare, k, v) returns void
 - Never write: map := Map.add(map, ...)
-- Provide a compare function at each call site (e.g., Text.compare, Nat.compare)
 - API patterns with dot notation:
   - Map.empty<K,V>()
   - map.add(cmp, k, v)
@@ -165,6 +164,7 @@ Audit:
   - map.delete(cmp, k) → Bool
   - map.take(cmp, k) → ?V
   - map.entries(), map.values(), map.size()
+- "cmp" is a key compare function, e.g., Text.compare, Nat.compare
 
 ### Phase 3c: TrieSet → Set (MUTABLE)
 
@@ -205,7 +205,7 @@ Audit:
 - If zero, remove base = "..." from mops.toml
 
 Note:
-- Third-party .mops deps may still use mo:base; patch them first inside .mops
+- Third-party .mops deps may still use mo:base; skip them
 
 ### Phase 6: Stable Variable Migration (Production-Critical)
 
@@ -214,28 +214,6 @@ If changing serialization strategy or types:
 - Use transient var for in-memory Map/List/Set that you reconstruct on upgrade
 - Use preupgrade/postupgrade to serialize/deserialize when necessary
 - For incompatible changes, consider the with migration = syntax to translate old state to new
-
----
-
-## Third-Party Package Fix Patterns (.mops/)
-
-Patch these inside .mops if present:
-
-- libsecp256k1@0.1.0
-  - Array.tabulateVar → VarArray.tabulate (import VarArray "mo:core/VarArray")
-  - Some calls require explicit type params (e.g., Array.toVarArray<T>(arr))
-- account-identifier@1.0.2
-  - Blob.fromArrayMut → Blob.fromVarArray (or Array.fromVarArray then Blob.fromArray)
-- json@1.4.0
-  - Array.slice → Array.range
-- xtended-numbers@0.3.1
-  - Prelude.unreachable → Runtime.trap("unreachable")
-  - Iter.range(a, b) → Nat.range(a, b + 1) or explicit loop
-  - Iter.revRange(a, b) → Iter.reverse(Nat.range(b, a + 1)) or explicit loop
-
-General advice:
-- Read .mops/core sources to confirm exact APIs
-- Keep Error.message in mo:core/Error (don’t replace with Runtime.message)
 
 ---
 

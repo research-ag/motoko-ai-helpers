@@ -23,6 +23,8 @@ type: reference
 
 3) Mechanical Renames (Phases 1–2)
 - Imports: mo:base/* → mo:core/* (with noted exceptions)
+- Types-only: Prefer mo:core/Types for type-only imports (e.g., Iter.Iter<T> → Types.Iter<T>, Result.Result<T,E> → Types.Result<T,E>)
+- Style: If importing ≤2 types from mo:core/Types, prefer named type imports (e.g., `import { type Result; type Iter } "mo:core/Types";`) and then use `Result<T>` / `Iter<T>` in code; if importing ≥3 types, import the whole module (`import Types "mo:core/Types";`).
 - Methods: .vals() → .values(), Array.*, Option.*, Debug.trap → Runtime.trap, etc.
 
 4) Data Structure Migrations (Phase 3)
@@ -102,6 +104,36 @@ Bulk rename:
   - mo:base/OrderedMap → mo:core/pure/Map
   - mo:base/OrderedSet → mo:core/pure/Set
   - mo:base/Deque → mo:core/pure/Queue
+
+#### Types-only imports (mo:core/Types)
+
+- When you only need a type and not the functions from its module, import `Types` instead of that module.
+- Most common cases to fix explicitly:
+  - Replace `import Iter "mo:core/Iter"` used only for the type `Iter.Iter<T>` with `import Types "mo:core/Types"` and update `Iter.Iter<T>` to `Types.Iter<T>`.
+  - Replace `import Result "mo:core/Result"` used only for the type `Result.Result<T,E>` with `import Types "mo:core/Types"` and update `Result.Result<T,E>` to `Types.Result<T,E>`.
+- Keep it simple: only fix these two patterns unless you clearly see another types-only import.
+- Audit (to find likely spots):
+  - `grep -rn "Iter\.Iter<" . --include="*.mo" | grep -v .mops`
+  - `grep -rn "Result\.Result<" . --include="*.mo" | grep -v .mops`
+- Minimal fix pattern:
+  - If no `Iter.*` functions are called, change `import Iter "mo:core/Iter"` to `import Types "mo:core/Types"` and rewrite the type to `Types.Iter<...>`.
+  - Similarly for `Result`, when only the `Result.Result<...>` type is used.
+
+- Preferred import style for small sets of types:
+  - If you need no more than 2 types from `mo:core/Types`, import them by name as types and then use them directly in code without a prefix.
+  - Example:
+    ```motoko
+    // Before (module import or prefixed usage)
+    import Types "mo:core/Types";
+    type R = Types.Result<Nat, Text>;
+    type I = Types.Iter<Nat>;
+
+    // After (≤2 types: direct named type import)
+    import { type Result; type Iter } "mo:core/Types";
+    type R = Result<Nat, Text>;
+    type I = Iter<Nat>;
+    ```
+  - If you import 3 or more types from `Types`, import the whole module: `import Types "mo:core/Types";` and use `Types.Result<...>`, `Types.Iter<...>`, etc.
 
 Use sed commands to replace all occurences at once
 

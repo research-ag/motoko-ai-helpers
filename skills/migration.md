@@ -121,13 +121,13 @@ Common mappings:
 - Array.init<T>(size, val) → VarArray.repeat<T>(val, size)  (args reversed)
 - Array.freeze(arr) → Array.fromVarArray(arr)
 - Array.thaw(arr) → Array.toVarArray(arr)
-- Array.slice(a,s,e) → Array.range(a,s,e)
+- Array.slice(a, s, e) → Array.range(a, s, e)
 - Array.subArray(a, s, l) → Array.sliceToArray(a, s, s + l)
 - Array.make(x) → Array.singleton(x)
 - Array.mapFilter → Array.filterMap
 - Array.chain → Array.flatMap
-- Iter.range(a,b) → Nat.range(a,b+1) (exclusive upper bound now)
-- Iter.revRange(a,b) → Iter.reverse(Nat.range(b, a + 1))
+- Iter.range(a, b) → Nat.range(a, b + 1) (exclusive upper bound now)
+- Iter.revRange(a, b) → Nat.rangeByInclusive(a, b, -1)
 - Text.toLowercase → Text.toLower
 - Text.toUppercase → Text.toUpper
 - Text.translate → Text.flatMap

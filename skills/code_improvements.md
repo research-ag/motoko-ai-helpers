@@ -118,7 +118,8 @@ Text.contains(t, sub)     → t.contains(sub)
 ```
 
 Cautions
-- Some factory/constructor functions remain on the module (e.g., `Array.fromIter`, `Map.empty`). Do not force dot‑notation when it does not exist.
+- Some factory/constructor functions remain on the module (e.g., `Array.fromIter`, `Array.fromVarArray`, `VarArray.fromArray`, `Map.empty`). Do not force dot‑notation when it does not exist.
+- Blob conversions have no dot‑notation: keep `Blob.fromArray` and `Blob.fromVarArray` as module calls; there is no `blob.toArray()` or similar. Ensure `import Blob "mo:core/Blob";` when using them.
 - Ensure the backing module for a dot call is imported (see Section C and D below). Without an `import Array "mo:core/Array";` in scope, `a.length()` will fail, even if `Array.*` names are not otherwise referenced.
 
 Audit helpers

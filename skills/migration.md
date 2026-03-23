@@ -205,17 +205,9 @@ Audit:
 
 ### Phase 3d: Dot notation
 
-Use dot-notation where possible. For example, replace:
-Array.length(arr) with arr.length()
-Array.find(arr, f) with arr.find(f)
-VarArray.toArray(arr) with arr.toArray()
+For dot‑notation details and safe patterns, see the Skill “Motoko mo:core Code Improvements” — Section B (Prefer dot‑notation) and Section C (Ensure necessary imports for dot‑notation).
 
-Some things that do not have a dot notation:
-Array.fromVarArray
-VarArray.fromArray
-Blob.fromArray
-Blob.fromVarArray
-
+Short rule: Prefer dot‑notation where supported by `mo:core` APIs; keep module‑level factory/constructor calls when no method exists (e.g., `Blob.fromArray` / `Blob.fromVarArray`). Run this step after the basic renames so behavior stays unchanged.
 
 ### Phase 4: persistent actor Keyword
 

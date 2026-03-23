@@ -113,8 +113,8 @@ Bulk rename:
   - Replace `import Result "mo:core/Result"` used only for the type `Result.Result<T,E>` with `import Types "mo:core/Types"` and update `Result.Result<T,E>` to `Types.Result<T,E>`.
 - Keep it simple: only fix these two patterns unless you clearly see another types-only import.
 - Audit (to find likely spots):
-  - `grep -rn "Iter\.Iter<" . --include="*.mo" | grep -v .mops`
-  - `grep -rn "Result\.Result<" . --include="*.mo" | grep -v .mops`
+  - `grep -rn "Iter\.Iter<" . --include="*.mo" | grep -v \.mops`
+  - `grep -rn "Result\.Result<" . --include="*.mo" | grep -v \.mops`
 - Minimal fix pattern:
   - If no `Iter.*` functions are called, change `import Iter "mo:core/Iter"` to `import Types "mo:core/Types"` and rewrite the type to `Types.Iter<...>`.
   - Similarly for `Result`, when only the `Result.Result<...>` type is used.
@@ -141,7 +141,7 @@ Removed without direct replacement (manual fix required):
 - AssocList, Buffer, Hash, HashMap, Heap, IterType, None, Prelude, RBTree, Trie, TrieMap, TrieSet
 
 Audit:
-- grep -rl 'mo:base' . --include="*.mo" | grep -v .mops
+- grep -rl 'mo:base' . --include="*.mo" | grep -v \.mops
 
 ### Phase 2: Function Renames (mechanical)
 
@@ -169,7 +169,7 @@ Common mappings:
 - Cycles.add(n); await call(args) → use “await (with cycles = n) call(args)”
 
 Audit:
-- grep -rn "\.vals()" . --include="*.mo" | grep -v .mops
+- grep -rn "\.vals()" . --include="*.mo" | grep -v \.mops
 
 ### Phase 3a: Buffer → List (MUTABLE, biggest gotcha)
 
@@ -232,7 +232,7 @@ Only after:
 - No references to mo:base in your own code
 
 Audit:
-- grep -r 'mo:base' . --include="*.mo" | grep -v .mops
+- grep -r 'mo:base' . --include="*.mo" | grep -v \.mops
 - If zero, remove base = "..." from mops.toml
 
 Note:
@@ -305,12 +305,12 @@ Per-canister build (fast iteration):
 - dfx build <canister> 2>&1 | head -30
 
 Migration completeness (must be zero before Phase 5):
-- grep -rn "mo:base" . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "HashMap\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "Buffer\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "TrieSet\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "Debug\.trap" . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "\.vals()" . --include="*.mo" | grep -v .mops | wc -l
+- grep -rn "mo:base" . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "HashMap\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "Buffer\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "TrieSet\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "Debug\.trap" . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "\.vals()" . --include="*.mo" | grep -v \.mops | wc -l
 - grep -rn ":= Map\.add\|:= List\.add\|:= Set\.add" . --include="*.mo" | wc -l
 
 API compatibility:

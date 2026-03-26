@@ -1,0 +1,20 @@
+{
+  "name": "motoko-skills",
+  "version": "1.0.0",
+  "description": "A set of skills for AI agents for working with motoko code",
+  "keywords": [
+    "motoko",
+    "ai",
+    "skills"
+  ],
+  "homepage": "https://github.com/research-ag/motoko-ai-helpers#readme",
+  "bugs": {
+    "url": "https://github.com/research-ag/motoko-ai-helpers/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/research-ag/motoko-ai-helpers.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Research AG"
+}

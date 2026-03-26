@@ -1,9 +1,6 @@
 ---
 name: motoko-benchmarks-generation
-description: "How to write benchmarks in Motoko using bench‑helper. Covers project setup (mops.toml), bench file layout in bench/*.bench.mo, the Bench.Schema rows/cols model, and safe patterns for encode/decode, hashing, crypto, and allocation benches."
-metadata:
-  title: "Motoko Benchmarks with bench‑helper"
-  category: Motoko
+description: How to write benchmarks in Motoko using bench‑helper. Covers project setup (mops.toml), bench file layout in bench/*.bench.mo, the Bench.Schema rows/cols model, and safe patterns for encode/decode, hashing, crypto, and allocation benches.
 ---
 
 # Motoko Benchmarks with bench‑helper

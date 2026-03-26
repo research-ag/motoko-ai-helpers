@@ -1,6 +1,6 @@
 ---
 name: motoko-performance-optimizations
-description: "General performance optimization techniques for Motoko: reducing allocations, efficient Text building, fixed-width arithmetic, block processing, async patterns, and more. Load when you need to improve hot paths or reduce overhead without changing behavior."
+description: General performance optimization techniques for Motoko. Reducing allocations, efficient Text building, fixed-width arithmetic, block processing, async patterns, and more. Load when you need to improve hot paths or reduce overhead without changing behavior.
 ---
 
 # Motoko Performance Optimizations

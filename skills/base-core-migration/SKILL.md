@@ -1,12 +1,9 @@
 ---
-name: Motoko mo:base → mo:core Migration Skill
+name: motoko-base-to-core-migration
 description: Complete, AI-ready playbook to migrate Motoko projects from mo:base to mo:core — phases, renames, data structure changes, agent strategy, verification scripts, upgrade tests, and production rollout.
-type: reference
 ---
 
 # Skill: Motoko mo:base → mo:core Migration
-
----
 
 ## AI Quick Checklist (Do Not Skip)
 
@@ -23,6 +20,8 @@ type: reference
 
 3) Mechanical Renames (Phases 1–2)
 - Imports: mo:base/* → mo:core/* (with noted exceptions)
+- Types-only: Prefer mo:core/Types for type-only imports (e.g., Iter.Iter<T> → Types.Iter<T>, Result.Result<T,E> → Types.Result<T,E>)
+- Style: If importing ≤2 types from mo:core/Types, prefer named type imports (e.g., `import { type Result; type Iter } "mo:core/Types";`) and then use `Result<T>` / `Iter<T>` in code; if importing ≥3 types, import the whole module (`import Types "mo:core/Types";`).
 - Methods: .vals() → .values(), Array.*, Option.*, Debug.trap → Runtime.trap, etc.
 
 4) Data Structure Migrations (Phase 3)
@@ -96,20 +95,50 @@ Rules inside persistent actor:
 Bulk rename:
 - mo:base/X → mo:core/X (for most modules)
 - Special cases:
-  - mo:base/ExperimentalCycles → mo:core/Cycles
-  - mo:base/ExperimentalInternetComputer → mo:core/InternetComputer
-  - mo:base/List → mo:core/pure/List (immutable list; not mo:core/List)
-  - mo:base/OrderedMap → mo:core/pure/Map
-  - mo:base/OrderedSet → mo:core/pure/Set
-  - mo:base/Deque → mo:core/pure/Queue
+    - mo:base/ExperimentalCycles → mo:core/Cycles
+    - mo:base/ExperimentalInternetComputer → mo:core/InternetComputer
+    - mo:base/List → mo:core/pure/List (immutable list; not mo:core/List)
+    - mo:base/OrderedMap → mo:core/pure/Map
+    - mo:base/OrderedSet → mo:core/pure/Set
+    - mo:base/Deque → mo:core/pure/Queue
 
-Use sed commands to replace all occurences at once
+#### Types-only imports (mo:core/Types)
+
+- When you only need a type and not the functions from its module, import `Types` instead of that module.
+- Most common cases to fix explicitly:
+    - Replace `import Iter "mo:core/Iter"` used only for the type `Iter.Iter<T>` with `import Types "mo:core/Types"` and update `Iter.Iter<T>` to `Types.Iter<T>`.
+    - Replace `import Result "mo:core/Result"` used only for the type `Result.Result<T,E>` with `import Types "mo:core/Types"` and update `Result.Result<T,E>` to `Types.Result<T,E>`.
+- Keep it simple: only fix these two patterns unless you clearly see another types-only import.
+- Audit (to find likely spots):
+    - `grep -rn "Iter\.Iter<" . --include="*.mo" | grep -v \.mops`
+    - `grep -rn "Result\.Result<" . --include="*.mo" | grep -v \.mops`
+- Minimal fix pattern:
+    - If no `Iter.*` functions are called, change `import Iter "mo:core/Iter"` to `import Types "mo:core/Types"` and rewrite the type to `Types.Iter<...>`.
+    - Similarly for `Result`, when only the `Result.Result<...>` type is used.
+
+- Preferred import style for small sets of types:
+    - If you need no more than 2 types from `mo:core/Types`, import them by name as types and then use them directly in code without a prefix.
+    - Example:
+      ```motoko
+      // Before (module import or prefixed usage)
+      import Types "mo:core/Types";
+      type R = Types.Result<Nat, Text>;
+      type I = Types.Iter<Nat>;
+  
+      // After (≤2 types: direct named type import)
+      import { type Result; type Iter } "mo:core/Types";
+      type R = Result<Nat, Text>;
+      type I = Iter<Nat>;
+      ```
+    - If you import 3 or more types from `Types`, import the whole module: `import Types "mo:core/Types";` and use `Types.Result<...>`, `Types.Iter<...>`, etc.
+
+Use sed commands to replace all occurrences at once
 
 Removed without direct replacement (manual fix required):
 - AssocList, Buffer, Hash, HashMap, Heap, IterType, None, Prelude, RBTree, Trie, TrieMap, TrieSet
 
 Audit:
-- grep -rl 'mo:base' . --include="*.mo" | grep -v .mops
+- grep -rl 'mo:base' . --include="*.mo" | grep -v \.mops
 
 ### Phase 2: Function Renames (mechanical)
 
@@ -121,13 +150,13 @@ Common mappings:
 - Array.init<T>(size, val) → VarArray.repeat<T>(val, size)  (args reversed)
 - Array.freeze(arr) → Array.fromVarArray(arr)
 - Array.thaw(arr) → Array.toVarArray(arr)
-- Array.slice(a,s,e) → Array.range(a,s,e)
+- Array.slice(a, s, e) → Array.range(a, s, e)
 - Array.subArray(a, s, l) → Array.sliceToArray(a, s, s + l)
 - Array.make(x) → Array.singleton(x)
 - Array.mapFilter → Array.filterMap
 - Array.chain → Array.flatMap
-- Iter.range(a,b) → Nat.range(a,b+1) (exclusive upper bound now)
-- Iter.revRange(a,b) → Iter.reverse(Nat.range(b, a + 1))
+- Iter.range(a, b) → Nat.range(a, b + 1) (exclusive upper bound now)
+- Iter.revRange(a, b) → Nat.rangeByInclusive(a, b, -1)
 - Text.toLowercase → Text.toLower
 - Text.toUppercase → Text.toUpper
 - Text.translate → Text.flatMap
@@ -137,17 +166,17 @@ Common mappings:
 - Cycles.add(n); await call(args) → use “await (with cycles = n) call(args)”
 
 Audit:
-- grep -rn "\.vals()" . --include="*.mo" | grep -v .mops
+- grep -rn "\.vals()" . --include="*.mo" | grep -v \.mops
 
 ### Phase 3a: Buffer → List (MUTABLE, biggest gotcha)
 
 - List in mo:core is MUTABLE; List.add(list, x) returns void and mutates in place
 - Never write: list := List.add(list, x)
 - Accessors:
-  - List.at(list, i) → T (traps on OOB)
-  - List.get(list, i) → ?T (safe)
+    - List.at(list, i) → T (traps on OOB)
+    - List.get(list, i) → ?T (safe)
 - Conversions:
-  - List.toArray(list), List.fromArray(arr)
+    - List.toArray(list), List.fromArray(arr)
 - Prefer stable let list = List.empty<T>() for persistent state
 
 ### Phase 3b: HashMap/TrieMap → Map (MUTABLE)
@@ -155,13 +184,13 @@ Audit:
 - Map is MUTABLE; Map.add(map, compare, k, v) returns void
 - Never write: map := Map.add(map, ...)
 - API patterns with dot notation:
-  - Map.empty<K,V>()
-  - map.add(cmp, k, v)
-  - map.get(cmp, k) → ?V
-  - map.remove(cmp, k) → void
-  - map.delete(cmp, k) → Bool
-  - map.take(cmp, k) → ?V
-  - map.entries(), map.values(), map.size()
+    - Map.empty<K,V>()
+    - map.add(cmp, k, v)
+    - map.get(cmp, k) → ?V
+    - map.remove(cmp, k) → void
+    - map.delete(cmp, k) → Bool
+    - map.take(cmp, k) → ?V
+    - map.entries(), map.values(), map.size()
 - "cmp" is a key compare function, e.g., Text.compare, Nat.compare
 
 ### Phase 3c: TrieSet → Set (MUTABLE)
@@ -173,17 +202,9 @@ Audit:
 
 ### Phase 3d: Dot notation
 
-Use dot-notation where possible. For example, replace:
-Array.length(arr) with arr.length()
-Array.find(arr, f) with arr.find(f)
-VarArray.toArray(arr) with arr.toArray()
+For dot‑notation details and safe patterns, see the Skill “Motoko mo:core Code Improvements” — Section B (Prefer dot‑notation) and Section C (Ensure necessary imports for dot‑notation).
 
-Some things that do not have a dot notation:
-Array.fromVarArray
-VarArray.fromArray
-Blob.fromArray
-Blob.fromVarArray
-
+Short rule: Prefer dot‑notation where supported by `mo:core` APIs; keep module‑level factory/constructor calls when no method exists (e.g., `Blob.fromArray` / `Blob.fromVarArray`). Run this step after the basic renames so behavior stays unchanged.
 
 ### Phase 4: persistent actor Keyword
 
@@ -200,7 +221,7 @@ Only after:
 - No references to mo:base in your own code
 
 Audit:
-- grep -r 'mo:base' . --include="*.mo" | grep -v .mops
+- grep -r 'mo:base' . --include="*.mo" | grep -v \.mops
 - If zero, remove base = "..." from mops.toml
 
 Note:
@@ -258,11 +279,11 @@ Needs careful/manual review:
 
 Agent Prompt Template:
 - Migrate [FILE] from mo:base to mo:core. CRITICAL RULES:
-  1. Map.add/List.add/Set.add return VOID — remove all := assignments
-  2. VarArray.repeat(val, size) — args REVERSED from Array.init(size, val)
-  3. List/Map/Set mutate in-place — prefer stable let for persistent data
-  4. Error.message stays as Error.message — NOT Runtime.message
-  5. Add explicit type params when compiler gives M0098
+    1. Map.add/List.add/Set.add return VOID — remove all := assignments
+    2. VarArray.repeat(val, size) — args REVERSED from Array.init(size, val)
+    3. List/Map/Set mutate in-place — prefer stable let for persistent data
+    4. Error.message stays as Error.message — NOT Runtime.message
+    5. Add explicit type params when compiler gives M0098
 - Show me the diff before writing.
 
 ---
@@ -273,12 +294,12 @@ Per-canister build (fast iteration):
 - dfx build <canister> 2>&1 | head -30
 
 Migration completeness (must be zero before Phase 5):
-- grep -rn "mo:base" . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "HashMap\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "Buffer\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "TrieSet\." . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "Debug\.trap" . --include="*.mo" | grep -v .mops | wc -l
-- grep -rn "\.vals()" . --include="*.mo" | grep -v .mops | wc -l
+- grep -rn "mo:base" . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "HashMap\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "Buffer\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "TrieSet\." . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "Debug\.trap" . --include="*.mo" | grep -v \.mops | wc -l
+- grep -rn "\.vals()" . --include="*.mo" | grep -v \.mops | wc -l
 - grep -rn ":= Map\.add\|:= List\.add\|:= Set\.add" . --include="*.mo" | wc -l
 
 API compatibility:

@@ -1,8 +1,11 @@
 ---
-sidebar_position: 14
+name: motoko-general-style-guidelines
+description: Load when working with contents in *.mo files
 ---
 
-# Motoko style guidelines
+# Motoko general style guidelines
+
+## What This Is
 
 To increase readability and uniformity of Motoko source code, the style guide provides suggestions for formatting Motoko sources and other basic conventions.
 
@@ -890,7 +893,3 @@ Rationale: `g[1]` in particular will be misparsed as an indexing operation.
 -   Where applicable, name modules after the main type or class they implement or provide functions for.
 
 -   Limit each module to a single main concept/type/class or closely entangled family of concepts/types/classes.
-
-<!--
-=== To be extended
--->

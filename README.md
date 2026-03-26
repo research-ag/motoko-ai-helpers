@@ -12,6 +12,12 @@ List skills available in this repository (no install yet):
 npx skills add https://github.com/research-ag/motoko-ai-helpers --list
 ```
 
+Interactive command to install skills that you need:
+
+```bash
+npx skills add https://github.com/research-ag/motoko-ai-helpers
+```
+
 Install specific skills:
 
 ```bash

@@ -12,6 +12,7 @@ This skill focuses on mechanical, semantics‑preserving improvements:
 - Prefer dot‑notation where available in `mo:core`
 - Clean up truly unused `import` lines while respecting implicit needs created by dot‑notation
 - Remove redundant `return` in single‑expression functions
+- Use direct string‑to‑Blob assignment for constant ASCII strings where appropriate
 
 Safety first:
 - Run each improvement category independently; commit after each to isolate diffs
@@ -32,6 +33,7 @@ Safety first:
 - C. Ensure necessary `mo:core` imports for dot‑notation — see Motoko Dot‑Notation Migration Skill (import mapping)
 - D. Clean up unused imports (be conservative re: dot‑notation)
 - E. Aggregate imports into three sections and sort each section alphabetically per file (1) `mo:core/...` (2) other `mo:*/...` from mops/third‑party (3) local project modules)
+- F. Use direct string-to-Blob assignment for constant ASCII strings where appropriate
 
 3) Verify after each step
 - Build all canisters or packages
@@ -43,6 +45,7 @@ Acceptance Criteria
 - No behavior changes; public interfaces unchanged unless stylistic
 - Imports are aggregated into three sections — (1) `mo:core/...`, (2) other `mo:*/...` from mops/third‑party, (3) local project modules — and each section is alphabetized; no truly unused `import`s remain
 - Dot‑notation is consistently used where directly supported
+- Constant Text strings are assigned directly to `Blob` without redundant `Text.encodeUtf8` calls
 
 ---
 
@@ -167,6 +170,37 @@ Lightweight automation idea (per file)
 
 ---
 
+## F) Direct string‑to‑Blob assignment for constants
+
+Pattern
+```motoko
+// Before
+let b : Blob = Text.encodeUtf8("hello");
+
+// After
+let b : Blob = "hello";
+```
+
+Why
+- For constant Text strings, the Motoko compiler allows direct assignment to the `Blob` type.
+- The result is identical to `Text.encodeUtf8`, but the code is cleaner and avoids an explicit function call.
+
+Examples
+```motoko
+// Good: direct assignment
+let blobs = [
+  "strategy",
+  Text.encodeUtf8(Nat.toText(slot)),
+];
+
+// Avoid: redundant encoding for constant string
+let blobs = [
+  Text.encodeUtf8("strategy"),
+  Text.encodeUtf8(Nat.toText(slot)),
+];
+```
+---
+
 ## Practical Automation Recipes (opt‑in)
 
 These are optional starting points. Prefer editor‑integrated refactors when available. Always review diffs.
@@ -201,6 +235,7 @@ rg -n --glob '!**/.mops/**' --glob '**/*.mo' '^import .*"mo:core/([A-Za-z/]+)";'
     - C. Ensure required imports for any introduced dot‑notation (see import mapping in skills/dot-notation-migration/SKILL.md)
     - D. Remove truly unused imports (respect the dot‑notation import mapping from the dedicated skill)
     - E. Aggregate imports into the three sections and sort each section alphabetically (Core → Third‑party mo:* → Local)
+    - F. Replace `Text.encodeUtf8("<literal>")` with `"<literal>"` where the target type is `Blob`.
 3) After each file: compile; if failure due to missing import, restore and mark mapping
 4) After each category across repo: run a full build and optionally tests
 5) Produce a short report of changes and any edge cases deferred for manual review

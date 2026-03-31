@@ -1,42 +1,42 @@
-# Motoko AI Helpers — Agent Skills
+# Motoko-skills
 
 This repository provides reusable Agent Skills for Motoko development. These skills are compatible with the `skills` CLI, so you can list and install them into your coding agents (Cursor, Claude Code, Junie, Windsurf, and many more).
 
 Learn more about the ecosystem and CLI: https://skills.sh
 
-## Quick Start
+## Quick Start:
 
 List skills available in this repository (no install yet):
 
 ```bash
-npx skills add https://github.com/research-ag/motoko-ai-helpers --list
+npx skills add research-ag/motoko-skills --list
 ```
 
 Interactive command to install skills that you need:
 
 ```bash
-npx skills add https://github.com/research-ag/motoko-ai-helpers
+npx skills add research-ag/motoko-skills
 ```
 
 Install specific skills:
 
 ```bash
 # Install one skill to your default agent targets
-npx skills add https://github.com/research-ag/motoko-ai-helpers \
+npx skills add research-ag/motoko-skills \
   --skill motoko-dot-notation-migration
 
 # Install multiple specific skills
-npx skills add https://github.com/research-ag/motoko-ai-helpers \
+npx skills add research-ag/motoko-skills \
   --skill motoko-base-to-core-migration \
   --skill motoko-core-code-improvements
 
 # Install to specific agents (examples)
-npx skills add https://github.com/research-ag/motoko-ai-helpers \
+npx skills add research-ag/motoko-skills \
   --skill motoko-general-style-guidelines \
   -a cursor -a claude-code
 
 # Install all skills from this repository
-npx skills add https://github.com/research-ag/motoko-ai-helpers --skill '*'
+npx skills add research-ag/motoko-skills --skill '*'
 ```
 
 Project vs Global installation:

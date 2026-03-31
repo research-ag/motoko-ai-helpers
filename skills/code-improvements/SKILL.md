@@ -45,7 +45,7 @@ Acceptance Criteria
 - No behavior changes; public interfaces unchanged unless stylistic
 - Imports are aggregated into three sections — (1) `mo:core/...`, (2) other `mo:*/...` from mops/third‑party, (3) local project modules — and each section is alphabetized; no truly unused `import`s remain
 - Dot‑notation is consistently used where directly supported
-- Constant Text strings are assigned directly to `Blob` where possible, avoiding redundant `Text.encodeUtf8` calls
+- Constant Text strings are assigned directly to `Blob` without redundant `Text.encodeUtf8` calls
 
 ---
 

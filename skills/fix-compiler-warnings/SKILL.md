@@ -1,5 +1,5 @@
 ---
-name: fix-compiler-warnings 
+name: motoko-compiler-warnings-fixes 
 description: "Guidelines for fixing Motoko compiler warnings (moc). Use when asked to fix, suppress, or clean up Motoko compiler warnings from `dfx build --check`."
 ---
 

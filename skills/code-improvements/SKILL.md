@@ -451,7 +451,7 @@ Sections (in this order, each separated by a single blank line)
     - Sort local project module imports by the local name they are imported as, not by the module name in the imported path.
 
 Sorting rules (apply within each section independently)
-- Sort alphabetically by the quoted path string.
+- Sort alphabetically by the local name modules are imported as
 - Preserve import style (module vs. named type imports).
 - Keep multiple named‑type imports from the same path on a single line as‑is.
 - Optionally keep a comment header above each section (Core, Third‑party, Local) if your repo style prefers.

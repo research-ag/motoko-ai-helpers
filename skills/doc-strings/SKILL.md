@@ -190,10 +190,9 @@ it to the file works well for batch migration).
    grep -RInE "public (type|func|class|let)" src
    ```
 2. For each `.mo` file:
-   - Add a module-level `///` block (with a `name=import` example) above
-     the `module ... {` line.
-   - Add `///` blocks above every public declaration. For public classes,
-     also document each public member.
+   - Add a module-level `///` block (with a `name=import` example) at the beginning of the file, even before the block of import statements.
+   - Add `///` blocks above every public declaration inside the top-level modules.
+   - Recursive into nested public declarations. For instance public members of public classes need doc strings. Public members of public modules need doc strings. And so on.
 3. Re-scan to catch anything missed:
    ```bash
    awk '
@@ -341,7 +340,7 @@ has not seen the implementation. For every doc, ask:
 - What are the size or range constraints on each input?
 - Which BIP / RFC / spec defines the format, and is it linked?
 - For mutating methods, what state changes? Is the receiver still usable
-  afterwards?
+  afterward?
 - For functions that take a callback or proxy (e.g. an ECDSA signer), what
   is the expected input/output shape of the callback?
 - For variant returns, what does each variant mean semantically (not just

@@ -192,7 +192,7 @@ it to the file works well for batch migration).
 2. For each `.mo` file:
    - Add a module-level `///` block (with a `name=import` example) at the beginning of the file, even before the block of import statements.
    - Add `///` blocks above every public declaration inside the top-level modules.
-   - Recursive into nested public declarations. For instance public members of public classes need doc strings. Public members of public modules need doc strings. And so on.
+   - Recurse into nested public declarations. For instance public members of public classes need doc strings. Public members of public modules need doc strings. And so on.
 3. Re-scan to catch anything missed:
    ```bash
    awk '

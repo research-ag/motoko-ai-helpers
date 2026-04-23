@@ -103,7 +103,7 @@ Script Safety Requirements (learned from real migration)
 - A simple line-based return counter is NOT sufficient. You must track function boundaries using brace-depth parsing at the character level.
 - **Nested functions**: When a function body contains nested `func` declarations, skip the nested function's body entirely — only count returns at the direct (outermost) function scope.
 - **Accurate function boundary detection**: Use character-level scanning that handles string literals (skip `"..."` including `\"` escapes), comments (`//` line comments and `/* ... */` block comments), and tracks brace depth to find the true closing `}` of each function.
-- **Counting rule**: Count returns only when brace depth equals the function's body depth (i.e., directly inside the function, not inside nested blocks like `switch`, `if`, `for`, `while`). If a function has exactly 1 return at any nesting depth within its direct body, it is safe to remove. If it has more than 1, skip the entire function.
+- **Counting rule**: Count every `return` anywhere inside the outer function body, including inside nested control-flow blocks such as `switch`, `if`, `for`, and `while`, but excluding any `return` inside nested `func` bodies. A function is safe to rewrite only if this total count is exactly 1; if it has more than 1, skip the entire function.
 - A naive approach (142 removals in a 31-file project) broke 20 of 24 tests. The correct approach (34 removals) passed all tests.
 
 Battle-tested Python script

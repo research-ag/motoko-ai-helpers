@@ -100,11 +100,25 @@ Char: fromNat32, fromText
 Runtime: trap
 ```
 
-### 4. String Literals Must Be Skipped
+However, `Array.fromVarArray(x)` has a dot-notation equivalent: `x.toArray()` (via `VarArray.toArray`). This is NOT handled by the dot-notation conversion script — it's a separate refactor (see motoko-core-code-improvements skill, Section H).
+
+### 4. Dot-Notation Requires the Type's Module to Be Imported
+
+When calling a method via dot-notation on a value (e.g., `someBlob.toArray()`), the module for that value's type (`Blob`) must still be imported, even though the name `Blob` doesn't appear explicitly in the calling code.
+
+Common examples where the import looks unused but is required:
+- `Blob` — for `.toArray()`, `.size()` on Blob return values (e.g., `Sha256.fromArray(...).toArray()`)
+- `Array` — for `.flatten()`, `.foldLeft()`, `.map()`, `.sliceToArray()` on `[T]` values
+- `Nat` — for `.toText()` on Nat values from `.size()` calls
+- `VarArray` — for `.toArray()` on `[var T]` values (after converting `Array.fromVarArray`)
+
+If you remove these imports, compilation will fail with `field X does not exist in type` and a hint to import the module.
+
+### 5. String Literals Must Be Skipped
 
 When scanning for operators or commas, skip over string literals (`"..."`) including escaped quotes (`\"`), so operators inside strings don't trigger false positives.
 
-### 5. Numeric Literals Are Safe Without Parens
+### 6. Numeric Literals Are Safe Without Parens
 
 `42.toText()` and `0xFF.toNat()` are valid Motoko — numeric literals can receive dot notation directly. No parens needed.
 
@@ -696,7 +710,10 @@ if __name__ == '__main__':
 
 - [ ] All `Module.func(self, ...)` calls converted to `self.func(...)`
 - [ ] No factory functions converted (`tabulate`, `fromArray`, `fromVarArray`, `repeat`, `empty`, `range`, `fromNat`, `fromIntWrap`, etc.)
+- [ ] `Array.fromVarArray(x)` converted separately to `x.toArray()` (not part of dot-notation script)
 - [ ] Infix expressions wrapped in parens: `(a >> b).toNat()`, `(x & y).toText()`
 - [ ] Type parameters preserved: `xs.map<Nat64, [Nat8]>(f)` not corrupted
+- [ ] `Array.tabulate<T>` type annotations kept (compiler cannot infer them)
+- [ ] Imports for dot-notation types still present (`Blob`, `Array`, `Nat`, `VarArray`, etc.) even when module name doesn't appear explicitly in code
 - [ ] Nested chains correct: `xs.map<T, U>(f).flatten()` not `xs.map<T.flatten( U>(`
 - [ ] All tests pass with `npx mops test`

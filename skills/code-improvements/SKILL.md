@@ -28,12 +28,12 @@ Safety first:
 - Ensure consistent Motoko and dfx versions per migration skill (moc ≥ 1.3.0, dfx ≥ 0.31).
 
 2) Order of improvements (recommended)
-- A. Remove `return` in single‑expression functions
-- B. Convert to dot‑notation where available — see Motoko Dot‑Notation Migration Skill (`skills/dot-notation-migration/SKILL.md`)
-- C. Ensure necessary `mo:core` imports for dot‑notation — see Motoko Dot‑Notation Migration Skill (import mapping)
-- D. Clean up unused imports (be conservative re: dot‑notation)
-- E. Aggregate imports into three sections and sort each section alphabetically per file (1) `mo:core/...` (2) other `mo:*/...` from mops/third‑party (3) local project modules)
-- F. Use direct string-to-Blob assignment for constant ASCII strings where appropriate
+- a. Remove `return` in single‑expression functions
+- b. Convert to dot‑notation where available — see Motoko Dot‑Notation Migration Skill (`skills/dot-notation-migration/SKILL.md`)
+- c. Ensure necessary `mo:core` imports for dot‑notation — see Motoko Dot‑Notation Migration Skill (import mapping)
+- d. Clean up unused imports (be conservative re: dot‑notation)
+- e. Aggregate imports into three sections and sort each section alphabetically per file (1) `mo:core/...` (2) other `mo:*/...` from mops/third‑party (3) local project modules)
+- f. Use direct string-to-Blob assignment for constant ASCII strings where appropriate
 
 3) Verify after each step
 - Build all canisters or packages
@@ -64,6 +64,20 @@ Notes
 - Only apply when the function body consists of a single `return <expr>;` statement.
 - Do not transform multi‑statement bodies or bodies that include `try`, `label`, `switch`, or `await` leading to different control flow.
 - A function with multiple `return` statements (e.g., early returns in `switch` cases like `return null`) must NOT have any returns removed.
+- **Single non-terminal `return` (early/conditional exit):** if a function has exactly one `return` but it is *not* the final statement of the body (e.g., an early return inside an `if` or `switch` case, followed by a fall-through final expression), the function has two distinct return paths. Do NOT remove the early `return`. Instead, add an explicit `return` to the final expression as well, so the function has two `return` keywords total — one per exit path. This makes both control-flow exits explicit and consistent.
+  ```motoko
+  // Before — one explicit return, one implicit fall-through return
+  func lookup(k : Key) : ?V {
+    if (cache.contains(k)) { return cache.get(k) };
+    table.find(k)
+  };
+
+  // After — both exit paths use `return`
+  func lookup(k : Key) : ?V {
+    if (cache.contains(k)) { return cache.get(k) };
+    return table.find(k);
+  };
+  ```
 - **`return switch (...) { ... }` at the end of a function is OK.** Each case block ends with the expression being returned (no `return` keyword inside the cases). This is the preferred style when all cases produce values normally.
   ```motoko
   // OK — all cases produce values, no traps or throws
@@ -103,7 +117,7 @@ Script Safety Requirements (learned from real migration)
 - A simple line-based return counter is NOT sufficient. You must track function boundaries using brace-depth parsing at the character level.
 - **Nested functions**: When a function body contains nested `func` declarations, skip the nested function's body entirely — only count returns at the direct (outermost) function scope.
 - **Accurate function boundary detection**: Use character-level scanning that handles string literals (skip `"..."` including `\"` escapes), comments (`//` line comments and `/* ... */` block comments), and tracks brace depth to find the true closing `}` of each function.
-- **Counting rule**: Count every `return` anywhere inside the outer function body, including inside nested control-flow blocks such as `switch`, `if`, `for`, and `while`, but excluding any `return` inside nested `func` bodies. A function is safe to rewrite only if this total count is exactly 1; if it has more than 1, skip the entire function.
+- **Counting rule**: Count every `return` anywhere inside the outer function body, including inside nested control-flow blocks such as `switch`, `if`, `for`, and `while`, but excluding any `return` inside nested `func` bodies. A function is safe to rewrite only if this total count is exactly 1 **and that single `return` is the terminal direct-body statement** (only whitespace, comments, and an optional `;` may follow it before the closing `}`). If the single `return` is an early/conditional exit, the function has an additional implicit return path via its fall-through final expression — leave both alone (the script will not remove it; manually add an explicit `return` to the fall-through expression per the style note above).
 
 Battle-tested Python script
 
@@ -321,6 +335,76 @@ def process_file(filepath):
         returns = count_returns_in_direct_body(text, body_start, body_end)
         if len(returns) == 1:
             ret_start, ret_end = returns[0]
+            # Verify this return is the terminal statement of the direct body:
+            # scan past the return's expression (tracking brackets/strings/comments)
+            # to its terminating ';' (or body_end), then ensure only whitespace,
+            # comments, and optional semicolons remain before body_end.
+            n = len(text)
+            j = ret_end
+            depth = 0
+            stmt_end = body_end  # position after the return statement
+            while j < body_end:
+                c = text[j]
+                if c == '"':
+                    j += 1
+                    while j < body_end and text[j] != '"':
+                        if text[j] == '\\':
+                            j += 1
+                        j += 1
+                    j += 1
+                    continue
+                if c == '/' and j + 1 < body_end and text[j + 1] == '/':
+                    j += 2
+                    while j < body_end and text[j] != '\n':
+                        j += 1
+                    continue
+                if c == '/' and j + 1 < body_end and text[j + 1] == '*':
+                    j += 2
+                    while j < body_end and not (text[j] == '*' and j + 1 < body_end and text[j + 1] == '/'):
+                        j += 1
+                    j += 2
+                    continue
+                if c in '({[':
+                    depth += 1
+                elif c in ')}]':
+                    depth -= 1
+                elif c == ';' and depth == 0:
+                    stmt_end = j + 1
+                    break
+                elif c == '\n' and depth == 0:
+                    # Statement terminated by newline (no semicolon)
+                    stmt_end = j
+                    break
+                j += 1
+            else:
+                stmt_end = body_end
+
+            # Now skip whitespace, comments, and stray semicolons after the return
+            k = stmt_end
+            terminal = True
+            while k < body_end:
+                c = text[k]
+                if c.isspace() or c == ';':
+                    k += 1
+                    continue
+                if c == '/' and k + 1 < body_end and text[k + 1] == '/':
+                    k += 2
+                    while k < body_end and text[k] != '\n':
+                        k += 1
+                    continue
+                if c == '/' and k + 1 < body_end and text[k + 1] == '*':
+                    k += 2
+                    while k < body_end and not (text[k] == '*' and k + 1 < body_end and text[k + 1] == '/'):
+                        k += 1
+                    k += 2
+                    continue
+                # Found other code after the return — not terminal.
+                terminal = False
+                break
+
+            if not terminal:
+                continue
+
             # Remove "return " (keyword + trailing space)
             if ret_end < len(text) and text[ret_end] == ' ':
                 edits.append((ret_start, ret_end + 1))
@@ -484,7 +568,7 @@ import Utils "../lib/Utils";
 Lightweight automation idea (per file)
 - Collect all import lines at the file top.
 - Partition into the three sections by path prefix.
-- Sort each partition by the quoted path.
+- Sort each partition alphabetically by the local name they are imported as
 - Re‑emit sections in the order Core → Third‑party → Local, with a blank line between sections.
 - Keep any non‑import comments at their relative positions unless they clearly belong to a section header.
 

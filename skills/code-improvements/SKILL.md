@@ -28,12 +28,13 @@ Safety first:
 - Ensure consistent Motoko and dfx versions per migration skill (moc ≥ 1.3.0, dfx ≥ 0.31).
 
 2) Order of improvements (recommended)
-- a. Remove `return` in single‑expression functions
-- b. Convert to dot‑notation where available — see Motoko Dot‑Notation Migration Skill (`skills/dot-notation-migration/SKILL.md`)
-- c. Ensure necessary `mo:core` imports for dot‑notation — see Motoko Dot‑Notation Migration Skill (import mapping)
-- d. Clean up unused imports (be conservative re: dot‑notation)
-- e. Aggregate imports into three sections and sort each section alphabetically per file (1) `mo:core/...` (2) other `mo:*/...` from mops/third‑party (3) local project modules)
-- f. Use direct string-to-Blob assignment for constant ASCII strings where appropriate
+- A. Remove `return` in single‑expression functions
+- B. Convert to dot‑notation where available — see Motoko Dot‑Notation Migration Skill (`skills/dot-notation-migration/SKILL.md`)
+- C. Ensure necessary `mo:core` imports for dot‑notation — see Motoko Dot‑Notation Migration Skill (import mapping)
+- D. Clean up unused imports (be conservative re: dot‑notation)
+- E. Shorten local (sibling) import paths (drop the `./` prefix where applicable)
+- F. Aggregate imports into three sections and sort each section alphabetically per file: (1) `mo:core/...`, (2) other `mo:*/...` from mops/third‑party, (3) local project modules
+- G. Use direct string‑to‑Blob assignment for constant ASCII strings where appropriate
 
 3) Verify after each step
 - Build all canisters or packages

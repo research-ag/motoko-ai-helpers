@@ -66,6 +66,7 @@ Each skill is a directory under `skills/**/SKILL.md` with frontmatter that the C
 - motoko-core-code-improvements — Optional cleanups for mo:core projects (import order, unused imports, return removal, etc.).
 - motoko-general-style-guidelines — Comprehensive Motoko style guidelines to improve readability and consistency.
 - motoko-performance-optimizations — General performance optimization techniques (allocation reduction, fixed-width arithmetic, block processing, efficient Text building).
+- motoko-mops-package-maintenance — Automate maintaining a Motoko mops package — upgrade dependencies, run tests and benchmarks, fix breakages, update CHANGELOG, review docs, run the formatter, and prepare a patch release.
 
 ## Authoring New Skills
 

@@ -215,17 +215,38 @@ it to the file works well for batch migration).
    awk '
      FNR==1{prev=""}
      {
-       if ($0 ~ /^[[:space:]]*public[[:space:]]+(type|func|class|let)\b/) {
-         p=prev; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p);
+       if ($0 ~ /^[ \t]*public[ \t]+(type|func|class|let)([ \t(]|$)/) {
+         p=prev; gsub(/^[ \t]+|[ \t]+$/, "", p);
          if (p !~ /^\/{3}/) printf "%s:%d:%s\n", FILENAME, FNR, $0;
        }
-       if ($0 !~ /^[[:space:]]*$/) prev=$0;
+       if ($0 !~ /^[ \t]*$/) prev=$0;
      }
    ' src/*.mo src/**/*.mo
    ```
    Empty output = all public declarations are preceded by a `///` line.
+
+   **Portability**: use `[ \t]+` (and explicit `[ \t(]` boundaries) instead of
+   `[[:space:]]+` / `\b`. BSD/macOS awk silently fails to match POSIX classes
+   here — the script returns empty output and looks like a pass. The cost of
+   this miss is a full iteration to diagnose.
+
+   **Known false positives** (don't waste edits "fixing" these — mo-doc itself
+   handles both cases correctly):
+   - A legacy `// ...` comment between the `///` block and the `public ...`
+     line. The skill's format guidance explicitly allows this layout, but the
+     audit awk only looks at the immediately previous non-blank line. Verify
+     by reading the rendered HTML before assuming a real miss.
+   - A `public func` / `public let` inside a `/* ... */` block comment.
+     The awk has no notion of block comments, so commented-out code shows up
+     as missing. Cross-check by `grep`-ing the file for `/*` near the flagged
+     line.
+
 4. Generate docs:
    ```bash
+   # mo-doc does NOT create output subdirectories — pre-create them or it
+   # dies with Sys_error("<output>/<subdir>/<file>.html: No such file or
+   # directory") on the first nested module.
+   find src -type d | sed "s|^src|docs|" | xargs mkdir -p
    mo-doc --source src --output docs --format html
    ```
    No output = success. Any "Skipping ..." line indicates a syntax error
@@ -245,6 +266,16 @@ it to the file works well for batch migration).
   spec or BIP that defines the format and link to it.
 - Keep examples short and self-contained; prefer literal byte arrays over
   reading from external sources.
+
+### Files with many similar `public let`s (constants tables)
+
+Each `public let` needs its own `///` line — there is no syntax for a shared
+doc block. For files like FIPS round-constant tables (e.g. SHA256's
+`K00`..`K63`, SHA512's `K00`..`K79`), doing N individual `Edit` calls is
+slow and noisy. Read the file once and rewrite it whole with `Write`,
+emitting one `/// <name> round constant K<NN>.` line per entry. A
+module-level `///` at the top can carry the shared context (spec section,
+purpose) so the per-entry lines stay terse.
 
 ## Documenting Error and Trap Behavior (REQUIRED)
 

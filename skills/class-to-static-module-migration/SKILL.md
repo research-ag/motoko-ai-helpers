@@ -120,6 +120,57 @@ For each `class Foo<T>(initArgs)` in the package:
 
 7. **Run `mops test`, then `mops bench` (if a `bench/` folder exists), then build every project under `example/` / `examples/` (if such a directory exists)**, to make sure behavior is preserved. Fix all failures before moving on to the next class — see the "Step-by-Step Procedure" section for the full one-class-at-a-time, bottom-up workflow.
 
+## Multiple classes per file: export one top-level module per class, do NOT rename functions
+
+**Whenever a single `.mo` file declares two or more classes, the migration target is one top-level named `module` per original class in that same file — regardless of whether their method names overlap.** Do not flatten multiple classes into one module, and do not rename / prefix functions to work around the lack of overloading.
+
+**Why:** Motoko does not support function overloading and does not support nested modules — `module` declarations are top-level only. If you flatten `Foo` and `Bar` into one module and they both have `push` / `size` / `clear`, you'd be tempted to rename them (`pushFoo`, `pushBar`, ...). **Do not do this.** It breaks the core goal of this migration — that call sites stay identical thanks to dot-notation — because callers would have to switch from `x.push(e)` to `Foo.pushFoo(x, e)`. It also diverges from the `mo:core` convention where each data structure is its own module with its own `push` / `size` / `clear` / ... . Even when the method names *don't* overlap, keeping one module per original class preserves the one-class-↔-one-module mental model and keeps the per-class migration / per-class test gating from the "Step-by-Step Procedure" meaningful.
+
+**Do this instead.** Keep the function names exactly as they were on the original classes, and declare each class's functions inside its own top-level named module in the same file — with **no outer `module { ... }` wrapper** around them:
+
+```motoko
+// src/Wrappers.mo  -- one file, two original classes Foo and Bar
+import Array "mo:base/Array";
+
+module Foo {
+  public type Foo<T> = { var arr : [T] };
+  public func new<T>() : Foo<T> = { var arr = [] };
+  public func push<T>(self : Foo<T>, e : T) {
+    self.arr := Array.append(self.arr, [e]);
+  };
+  public func size<T>(self : Foo<T>) : Nat = self.arr.size();
+};
+
+module Bar {
+  public type Bar<T> = { var arr : [T]; var tag : Text };
+  public func new<T>(tag : Text) : Bar<T> = { var arr = []; var tag };
+  public func push<T>(self : Bar<T>, e : T) {
+    self.arr := Array.append(self.arr, [e]);
+  };
+  public func size<T>(self : Bar<T>) : Nat = self.arr.size();
+};
+```
+
+Call sites stay identical to the original class-style API:
+
+```motoko
+import { Foo; Bar } "Wrappers";   // or however the project imports the named module
+
+stable var f : Foo.Foo<Nat> = Foo.new();
+stable var b : Bar.Bar<Nat> = Bar.new("xs");
+
+f.push(1);   // resolves to Foo.push(f, 1)
+b.push(2);   // resolves to Bar.push(b, 2)
+```
+
+Rules:
+
+- **One top-level `module <ClassName> { ... }` per original class.** The module name matches the original class name (`Foo`, `Bar`). No outer `module { ... }` wrapper around them, and no nested modules — Motoko does not allow nested modules.
+- **Apply this whenever the original file has more than one class**, regardless of whether the classes share method names. (For a file with a single class, keep using a plain single-module file as in the main example.)
+- Inside each top-level module, follow the same conversion rules as for a single-class file (type alias named after the class, `new` / factory functions, `func name<T>(self : Foo<T>, ...)`, no `share` / `unshare`).
+- **Never** prefix function names with the class/module name as a workaround for missing overloading. `push`, `size`, `clear`, etc. stay as-is.
+- Keep the original file layout: if the original codebase put both classes in one file, keep both modules in that one file; do not split them into separate files just because they're now separate modules, and do not merge files that were originally separate.
+
 ## Common Pitfalls
 
 1. **The `self` parameter must be named `self`.** Any other name (`this`, `s`, `xs`) disables dot-notation. The function still works as `Foo.push(xs, e)`, but the migration goal (identical call sites) is lost.

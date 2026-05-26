@@ -52,8 +52,8 @@ All subsequent changes are committed on this branch.
 4. Locate the **Package Quality** section on the page.
 5. Review the status of each quality metric (e.g., Documentation, License, Repository, Tests, Benchmarks).
 6. If any metric is not **"yes"** or **"100%"**, attempt to fix it:
-    - **Documentation < 95%**: You MUST run the `motoko-doc-strings` skill to improve doc-string coverage.
-    - **Documentation >= 95%**: Skip documentation improvements. Do NOT run the `motoko-doc-strings` skill, and skip Step 7 and Step 8.
+    - **Documentation < 100%**: You MUST run the `motoko-doc-strings` skill to improve doc-string coverage. The goal is to reach **100%** — at minimum, identify every public declaration that is missing a `///` doc string and fill it in.
+    - **Documentation == 100%**: Skip documentation improvements. Do NOT run the `motoko-doc-strings` skill, and skip Step 7 and Step 8.
     - **Missing License/Repository**: Ensure these fields are correctly set in `mops.toml` `[package]` section.
     - **Tests/Benchmarks failing/missing**: These will be addressed in Step 4 and Step 5. You MUST also ensure a proper CI workflow is in place by following Step 9c (especially if the `motoko-github-ci-workflow` skill is installed).
 7. If a quality issue cannot be fixed automatically, raise a warning to the user.
@@ -280,7 +280,7 @@ create one with this format:
 
 ### Step 7 — Review and improve doc strings
 
-**Note:** If you determined in Step 1 that the MOPS Documentation quality is >= 95%, SKIP this step entirely.
+**Note:** If you determined in Step 1 that the MOPS Documentation quality is **100%**, SKIP this step entirely. Otherwise, the goal of this step is to bring coverage up to **100%** — at the very least, find every public declaration that is missing a `///` doc string and add one.
 
 Scan every `.mo` file under `src/` for public declarations. For each
 public `type`, `func`, `actor`, `actor class`, `let`, and `module`:
@@ -296,7 +296,7 @@ If a `motoko-doc-strings` skill is installed, follow its full checklist.
 
 ### Step 8 — Review README and other Markdown files
 
-**Note:** If you determined in Step 1 that the MOPS Documentation quality is >= 95%, SKIP this step entirely.
+**Note:** If you determined in Step 1 that the MOPS Documentation quality is **100%**, SKIP this step entirely.
 
 Read `README.md` and every other `.md` file in the repository. For each:
 
@@ -348,8 +348,10 @@ Search for GitHub Actions workflows (e.g., `.github/workflows/*.yml`).
 Follow its instructions to create or update a comprehensive CI workflow (usually `.github/workflows/ci.yml`) that includes tests, benchmarks, and formatting checks.
 
 **If the `motoko-github-ci-workflow` skill is NOT installed:**
-1. **Optimize `mops.toml`**: If `pocket-ic` is missing from the `[toolchain]` section, add `pocket-ic = "9.0.3"` ONLY if the package has tests and/or benchmarks and you have verified that tests and benchmarks work correctly with `pocket-ic` (some specific code may require a full `dfx`/`icp` environment).
-2. Create or update a consolidated GitHub Actions workflow (usually `.github/workflows/ci.yml`) that includes both code formatting checks and tests.
+
+**CRITICAL — Do NOT modify `mops.toml` `[toolchain]`:** Always use whatever is already configured in `mops.toml`. Do **NOT** add `pocket-ic` to the `[toolchain]` section automatically. Adding `pocket-ic` and then discovering it doesn't work with the package's tests/benchmarks wastes significant time. Treat this like the `files` field — leave it to the user to add manually if they want it.
+
+Create or update a consolidated GitHub Actions workflow (usually `.github/workflows/ci.yml`) that includes both code formatting checks and tests. If the package has **benchmarks** but `pocket-ic` is **not** in `mops.toml`'s `[toolchain]` section, the CI workflow MUST install `dfx` before running `mops bench` (see Pitfall #10 below for the exact snippet).
 
 If no CI exists, create `.github/workflows/ci.yml` with the following content:
 
@@ -465,13 +467,23 @@ Ready for review. Run `git push -u origin HEAD` to push.
 6. **CHANGELOG ordering.** Newest version goes at the top. Don't append
    to the bottom.
 
-7. **Respect the documentation quality threshold.** If the MOPS documentation quality is >= 95%, do NOT perform a full doc-string review or README update. This avoids unnecessary noise and minor changes that don't significantly improve the package quality when it's already at a high standard. Only perform a full scan if quality is < 95% or if the package is not yet published.
+7. **Respect the documentation quality threshold.** The target is **100%** documentation coverage. If the MOPS documentation quality is already **100%**, do NOT perform a full doc-string review or README update — this avoids unnecessary noise. If quality is below 100% (or the package is not yet published), perform a full scan and, at a minimum, find every public declaration missing a `///` doc string and fill it in so the package reaches 100%.
 
 8. **Adding Compiler Checks to CI.** Do not include `moc --check` in the CI configuration. This check should only be performed by the agent during the maintenance process to fix warnings, as different CI environments might have different compiler versions that could cause unexpected failures for the end user.
 
 9. **Including toolchain or dev-dependency bumps in CHANGELOG.** Never include `[toolchain]` or `[dev-dependencies]` bumps in the CHANGELOG. They clutter the history with internal development details that do not affect the package's consumers. Only include `[requirements]` or `[dependencies]` if they were explicitly upgraded.
 
-10. **Missing `pocket-ic` in toolchain.** If benchmarks exist but `pocket-ic` is missing from `mops.toml`, `mops bench` will fail in CI unless `dfx` is installed. Ensure `pocket-ic` is configured in `mops.toml` (Step 9c) ONLY if the conditions for its use are met (tests/benchmarks compatible with `pocket-ic`).
+10. **Missing `pocket-ic` in toolchain — install `dfx` in CI instead.** Never add `pocket-ic` to `mops.toml` automatically (see Step 9c). If the package has **benchmarks** AND `pocket-ic` is **not** present in `mops.toml`'s `[toolchain]` section, `mops bench` will fail in CI unless `dfx` is installed. In practice, `mops bench` with `pocket-ic` has proven unreliable on several repositories, so `dfx` is often the only working option. In that case, add a `dfx` installation step to the CI workflow **before** the `mops bench` step. Use the official installer and start the local replica so `mops bench` can connect:
+
+    ```yaml
+          - name: Install dfx
+            uses: dfinity/setup-dfx@main
+          - name: Start dfx
+            run: dfx start --background --clean
+          - run: mops bench
+    ```
+
+    Place this **only** in the job that runs `mops bench`, and only when the two conditions above are met (benchmarks exist AND `pocket-ic` is absent from `[toolchain]`).
 
 ## Verify It Works
 

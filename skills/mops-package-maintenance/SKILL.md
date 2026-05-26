@@ -27,9 +27,13 @@ The following tools must be available on the machine:
 - `mops` CLI (install: `npm i -g ic-mops`)
 - `moc` (Motoko compiler; usually ships with `dfx`, but can be standalone)
 - `dfx` (DFINITY SDK; optional if `moc` and `mops` are otherwise available)
-- `node` / `npm`
+- `node` (>= 20) / `npm` — the `mops` CLI uses ESM imports that fail on
+  Node 18 with `SyntaxError: ... does not provide an export named
+  'addAbortListener'`. Check with `node --version` first.
 - `git`
-- `prettier` and `prettier-plugin-motoko` (run via `npx -y`)
+- `prettier` and `prettier-plugin-motoko` — install locally before
+  running prettier (see Step 9b); `npx -y` alone does not auto-resolve
+  the plugin in a clean checkout.
 
 ## Workflow
 
@@ -50,6 +54,14 @@ All subsequent changes are committed on this branch.
 2. If it is a package, find the `name` field under `[package]`.
 3. Go to `https://mops.one/<name>` (replace `<name>` with the package name).
 4. Locate the **Package Quality** section on the page.
+   - `mops.one` is a single-page application: `curl`, `WebFetch`, and
+     other non-browser HTTP clients see only an empty HTML shell. If
+     you cannot render the page interactively, generate the quality
+     signals locally instead — run `mo-doc` and grep the rendered
+     HTML for `(no description)`; verify `[package] license` and
+     `[package] repository` in `mops.toml`; confirm `mops test` and
+     `mops bench` succeed — and ask the user to confirm any metric
+     you cannot verify programmatically.
 5. Review the status of each quality metric (e.g., Documentation, License, Repository, Tests, Benchmarks).
 6. If any metric is not **"yes"** or **"100%"**, attempt to fix it:
     - **Documentation < 100%**: You MUST run the `motoko-doc-strings` skill to improve doc-string coverage. The goal is to reach **100%** — at minimum, identify every public declaration that is missing a `///` doc string and fill it in.
@@ -175,6 +187,8 @@ moc = "1.6.0"
   build/
   skills-lock.json
   .agents
+  mops.lock          # for libraries only — `mops install` prints
+                     # a reminder line for this case
   ```
   *(Note: Personal files like `.idea`, `.vscode`, `.claude`, `.junie`, `.copilot`, `.tmp`, `*.swp`, and `.DS_Store` should NOT be added here; they should be managed in the developer's global ignore file, e.g., `~/.gitignore_global`.)*
 - **`package-lock.json`**: If it does NOT exist, do NOT introduce it.
@@ -244,6 +258,20 @@ If benchmarks fail to compile or run:
 
 If benchmarks show a significant regression, note it for the CHANGELOG
 but do not block the release unless the user explicitly asks.
+
+**Environmental failures vs code failures.** If `mops bench` errors
+*after* the `Deploying canisters...` line — typically with one of:
+
+- `TrustError: Certificate verification error: "Invalid signature"`
+- `UND_ERR_SOCKET` / `fetch failed`
+- `Could not find the PocketIC binary`
+
+— the benchmarks compiled fine; you're looking at a `dfx` / `pocket-ic`
+/ `mops` agent compatibility issue, not anything the dependency bump
+introduced. Try, in order: kill stale `pocket-ic`/`dfx` processes;
+remove `pocket-ic` from `[toolchain]` to fall back to `dfx replica`;
+remove the `bench` job from CI and flag the issue to the user. Do NOT
+spend the release on chasing a moving target outside the package.
 
 ### Step 6 — Update the CHANGELOG
 
@@ -334,11 +362,19 @@ Recommended `.prettierrc`:
 
 #### 9b — Format the code
 
-Run Prettier to format all supported files:
+`prettier`'s `--plugin` flag does not auto-resolve packages over the
+network. Install the plugin into a local `node_modules` first, then
+run prettier:
 
 ```bash
-npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
+npm install --no-save prettier prettier-plugin-motoko
+npx prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
 ```
+
+A bare `npx -y prettier --plugin prettier-plugin-motoko ...` fails
+with `Cannot find package 'prettier-plugin-motoko' imported from
+.../noop.js` in a clean checkout. (Step 9c's CI workflow includes
+the `npm install` line for the same reason.)
 
 #### 9c — Verify or Add CI Workflow
 
@@ -398,8 +434,21 @@ jobs:
 
 ### Step 10 — Bump the version
 
-1. Open root `mops.toml` and increment the **patch** version. For example, if the
-   current version is `1.2.3`, change it to `1.2.4`.
+1. Open root `mops.toml` and increment the version. The default is the
+   **patch** segment — for example, `1.2.3` → `1.2.4`. Bump the **minor**
+segment instead (and reset patch to `0`) if any of the following are
+true:
+- `[requirements] moc` was raised — consumers' build environments now
+  need a newer compiler;
+- a `[dependencies]` package crossed a major version *and* this
+  package re-exports types or functions from it (the API surface
+  visible to consumers may have shifted);
+- source signatures or runtime semantics consumers could be relying
+  on changed.
+
+For `0.x.y` versions, shift the rule one segment to the right (a
+`[requirements]` bump is a minor; a major dep bump is a patch only if
+the impact is internal-only).
 
 ```toml
 [package]
@@ -423,6 +472,15 @@ self-package-name = "../"
 ```
 
 ### Step 11 — Commit and push
+
+**First, audit untracked files.** Run `git status` and inspect the
+`??` entries. Earlier sessions may have left scratch files in
+`bench/`, `test/`, or elsewhere (`*.debug.bench.mo`, `roxy.txt`,
+ad-hoc experiments). These should NOT be part of the release.
+Either delete them, add the patterns to `.gitignore`, or simply
+leave them unstaged — but never `git add -A` blindly. If you are
+unsure whether an untracked file belongs to the release, ask the
+user before staging it.
 
 Stage all changes. **CRITICAL:** If `package.json` or `package-lock.json` did not exist at the start of the task, do NOT commit them if they were created during the process (e.g., by `npm install`).
 
@@ -484,6 +542,19 @@ Ready for review. Run `git push -u origin HEAD` to push.
     ```
 
     Place this **only** in the job that runs `mops bench`, and only when the two conditions above are met (benchmarks exist AND `pocket-ic` is absent from `[toolchain]`).
+
+9. **`mops add` rewrites `mops.toml`.** Running `mops add <package>`
+   regenerates the file and can silently revert `[requirements] moc`
+   to its default (typically `"1.0.0"`). After every `mops add`, diff
+   `mops.toml` and restore `[requirements] moc` to the value the
+   maintenance run requires.
+
+10. **Pre-existing scratch files.** Snapshot the untracked-file list
+    *before* you start making changes (`git status --short > /tmp/baseline.txt`)
+    so you can tell at Step 11 which untracked files predate your
+    work. Files that were already there are usually scratch and
+    should stay unstaged; files you introduced should be reviewed
+    individually.
 
 ## Verify It Works
 

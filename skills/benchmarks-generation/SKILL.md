@@ -32,44 +32,65 @@ Minimal skeleton
 
 ```motoko
 import Array "mo:core/Array";
-import Text  "mo:core/Text";
 import Bench "mo:bench-helper";
 
 module {
+  /// One benchmark per file; `mops bench` calls `init()` to obtain the
+  /// schema and the run function.
   public func init() : Bench.V1 {
     let schema : Bench.Schema = {
       name = "My bench";
       description = "What this bench measures";
-      rows = ["size 16", "size 64", "size 256"]; // your row labels
-      columns = ["operation A", "operation B"];  // your column labels
+      rows = ["size 16", "size 64", "size 256"]; // input categories
+      cols = ["operation A", "operation B"];     // operations to measure
     };
 
-    // Prepare inputs outside of `run` so they are not re-created on every iteration
+    // Prepare inputs once in `init` so they are not re-created on every call.
+    // `Array.tabulate` returns an immutable `[Nat8]`; use `VarArray.repeat`
+    // (or `VarArray.tabulate`) if you need a `[var Nat8]` instead.
     let inputs : [[Nat8]] = [
-      Array.init<Nat8>(16, 0),
-      Array.init<Nat8>(64, 0),
-      Array.init<Nat8>(256, 0),
+      Array.tabulate<Nat8>(16, func _ = 0),
+      Array.tabulate<Nat8>(64, func _ = 0),
+      Array.tabulate<Nat8>(256, func _ = 0),
     ];
 
-    // Build a table of routines to measure: routines[row][col] : () -> ()
-    let routines : [[() -> ()]] = Array.tabulate(
-      rows.size(),
+    // Build a table of routines: routines[ri][ci] : () -> ()
+    let routines : [[() -> ()]] = Array.tabulate<[() -> ()]>(
+      schema.rows.size(),
       func(ri) {
         let input = inputs[ri]; // capture precomputed input
         [
-          func() { ignore input.size() },    // operation A @ inputs[ri]
-          func() { ignore input.toArray() }, // operation B @ inputs[ri]
-        ]
+          func() { ignore input.size() }, // operation A @ inputs[ri]
+          func() { ignore input[0] },     // operation B @ inputs[ri]
+        ];
       },
     );
 
-    // The runner calls this many times; keep it tiny and branch-free.
+    // `Bench.V1` is a *class* (instance type), not a record alias.
+    // The runner calls the second argument many times; keep it tiny
+    // and branch-free.
     Bench.V1(schema, func(ri : Nat, ci : Nat) = routines[ri][ci]());
   };
 };
 ```
 
-Note: if you're not using "core" dependency, replace "mo:core" imports with "mo:base"
+Notes:
+- The `Schema` field is `cols`, not `columns`. Same for `rows.size()` — you
+  must say `schema.rows.size()` (the bare `rows` identifier is not in scope).
+- `mo:core/Array` has no `init` function. To build an immutable `[T]`, use
+  `Array.tabulate<T>(size, gen)` or `Array.repeat<T>(val, size)`. For a
+  mutable `[var T]`, import `VarArray "mo:core/VarArray"` and use
+  `VarArray.tabulate<T>(size, gen)` or `VarArray.repeat<T>(val, size)`;
+  annotate such inputs as `[var T]` (e.g. `[[var Nat8]]` for a table of them).
+- If you're not using `mo:core`, replace `mo:core` imports with `mo:base`.
+  Note that `mo:base/Array` covers both immutable and mutable arrays — there
+  is no separate `VarArray` module. The interface is not identical to
+  `mo:core`; for the Array API the relevant equivalences are:
+    - `mo:core` `Array.tabulate(size, gen)` → `mo:base` `Array.tabulate(size, gen)`
+    - `mo:core` `Array.repeat(val, size)` → `mo:base` `Array.freeze(Array.init(size, val))` (no direct immutable `repeat`)
+    - `mo:core` `VarArray.tabulate(size, gen)` → `mo:base` `Array.tabulateVar(size, gen)`
+    - `mo:core` `VarArray.repeat(val, size)` → `mo:base` `Array.init(size, val)` (args reversed)
+  See the `base-core-migration` skill for the full mapping.
 
 ## How It Works
 
@@ -92,6 +113,17 @@ Note: if you're not using "core" dependency, replace "mo:core" imports with "mo:
     - Use `ignore` to consume return values; otherwise the compiler might drop the call as dead code.
 4. Non‑determinism and timing noise
     - Keep `run` free of logging/printing and random allocation; keep GC pressure comparable across rows.
+5. Repeated runs and mutating operations
+    - `bench-helper` calls `run(ri, ci)` many times per cell to gather
+      timing samples. If the measured operation mutates the captured input
+      (e.g. an in-place sort, an in-place hash update), the second call
+      onwards sees the *post-operation* state — for an in-place sort, the
+      already-sorted array from the previous call; for an in-place hash
+      update, the accumulator left behind by the previous call. Either
+      rebuild the input inside `run` (and accept the allocation cost as
+      part of the measurement) or document that the bench measures
+      repeated runs on a mutated/post-operation state rather than on a
+      freshly prepared input.
 
 ## More examples
 

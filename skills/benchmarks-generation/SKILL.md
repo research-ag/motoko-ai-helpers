@@ -107,10 +107,13 @@ Notes:
     - `bench-helper` calls `run(ri, ci)` many times per cell to gather
       timing samples. If the measured operation mutates the captured input
       (e.g. an in-place sort, an in-place hash update), the second call
-      onwards sees the *post-operation* state — for an in-place sort, an
-      already-sorted array. Either rebuild the input inside `run` (and
-      accept the allocation cost as part of the measurement) or document
-      that the bench measures repeated runs on an unchanged input.
+      onwards sees the *post-operation* state — for an in-place sort, the
+      already-sorted array from the previous call; for an in-place hash
+      update, the accumulator left behind by the previous call. Either
+      rebuild the input inside `run` (and accept the allocation cost as
+      part of the measurement) or document that the bench measures
+      repeated runs on a mutated/post-operation state rather than on a
+      freshly prepared input.
 
 ## More examples
 

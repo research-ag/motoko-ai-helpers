@@ -42,11 +42,12 @@ output and the noise hurts readability.
 
 How thorough a doc string needs to be depends on where the file lives:
 
-- **Inside `src/internal/`** — doc strings can be brief. These modules are
-  implementation details that end users are not expected to call directly,
-  so a short one-liner stating what a declaration does is usually enough.
-  Trap/error notes can be omitted unless the behavior is surprising to
-  another maintainer.
+- **Inside `src/internal/`** (some packages use `src/private/` for the
+  same role — apply the same rule) — doc strings can be brief. These
+  modules are implementation details that end users are not expected to
+  call directly, so a short one-liner stating what a declaration does is
+  usually enough. Trap/error notes can be omitted unless the behavior is
+  surprising to another maintainer.
 - **Anywhere else under `src/` (i.e. outside `src/internal/`)** — doc
   strings MUST be comprehensive. These are the public API surface that
   users will call, so they need every detail: argument units and formats,
@@ -201,7 +202,18 @@ applies — the module-level `///` block goes at the very start of the
 file (before the imports), not on the line directly preceding
 `module Script {`.
 
-### 7. Module doc must be at the top of the file
+### 7. Preserve unfamiliar parameter syntax verbatim
+
+If a function signature uses syntax you don't recognise — e.g.
+`self : [var T]` (Motoko's method-dispatch hook that enables
+`x.func(...)` call sites) or `key : (implicit : T -> Nat32)` (the
+`implicit` parameter feature) — do NOT rewrite it. These shapes are
+load-bearing: they affect how call sites in examples work
+(`users.bucketSort<User>(...)` only compiles because the first
+parameter is named `self`), and a doc pass that "cleans them up" can
+silently invalidate every example you just wrote.
+
+### 8. Module doc must be at the top of the file
 
 `mo-doc` only treats a `///` block as the module description when it
 appears at the very beginning of the file, ahead of the `import`
@@ -276,14 +288,17 @@ public type Request = {
 
 4. Generate docs:
    ```bash
-   # mo-doc does NOT create output subdirectories — pre-create them or it
-   # dies with Sys_error("<output>/<subdir>/<file>.html: No such file or
-   # directory") on the first nested module.
-   find src -type d | sed "s|^src|docs|" | xargs mkdir -p
+   # mo-doc will NOT create nested output subdirectories on its own.
+   # If src/ has subdirectories, mkdir -p the mirrored paths under
+   # docs/ first or the run aborts on the first file it can't write.
+   mkdir -p docs $(find src -mindepth 1 -type d | sed 's|^src|docs|')
    mo-doc --source src --output docs --format html
    ```
-   No output = success. Any "Skipping ..." line indicates a syntax error
-   that must be fixed (often a stray `apply_patch` corruption).
+   No output = success. Two failure modes to watch for:
+   - A `Fatal error: exception Sys_error("docs/.../X.html: No such
+     file or directory")` means an output subdirectory is missing.
+   - Any `Skipping ...` line indicates a syntax error that must be
+     fixed (often a stray `apply_patch` corruption).
 5. Spot-check the rendered output:
     - `docs/index.html` — every module should appear in the listing.
     - Each `docs/<Module>.html` — module description, types, functions,
@@ -419,6 +434,10 @@ has not seen the implementation. For every doc, ask:
 - What is the unit / format of each argument and the return value?
   (bytes vs. bits, big- vs. little-endian, satoshis vs. BTC, raw vs.
   DER-encoded, compressed vs. uncompressed, 0-based vs. 1-based, …)
+- For Motoko array parameters, is `[T]` (immutable) vs. `[var T]`
+  (mutable) clear? Examples that mix `Array.tabulate` (returns `[T]`)
+  with `VarArray.repeat` (returns `[var T]`) routinely confuse
+  newcomers — spell out which shape the function expects.
 - What are the size or range constraints on each input?
 - Which BIP / RFC / spec defines the format, and is it linked?
 - For mutating methods, what state changes? Is the receiver still usable

@@ -42,11 +42,12 @@ output and the noise hurts readability.
 
 How thorough a doc string needs to be depends on where the file lives:
 
-- **Inside `src/internal/`** — doc strings can be brief. These modules are
-  implementation details that end users are not expected to call directly,
-  so a short one-liner stating what a declaration does is usually enough.
-  Trap/error notes can be omitted unless the behavior is surprising to
-  another maintainer.
+- **Inside `src/internal/`** (some packages use `src/private/` for the
+  same role — apply the same rule) — doc strings can be brief. These
+  modules are implementation details that end users are not expected to
+  call directly, so a short one-liner stating what a declaration does is
+  usually enough. Trap/error notes can be omitted unless the behavior is
+  surprising to another maintainer.
 - **Anywhere else under `src/` (i.e. outside `src/internal/`)** — doc
   strings MUST be comprehensive. These are the public API surface that
   users will call, so they need every detail: argument units and formats,
@@ -201,7 +202,18 @@ applies — the module-level `///` block goes at the very start of the
 file (before the imports), not on the line directly preceding
 `module Script {`.
 
-### 7. Module doc must be at the top of the file
+### 7. Preserve unfamiliar parameter syntax verbatim
+
+If a function signature uses syntax you don't recognise — e.g.
+`self : [var T]` (Motoko's method-dispatch hook that enables
+`x.func(...)` call sites) or `key : (implicit : T -> Nat32)` (the
+`implicit` parameter feature) — do NOT rewrite it. These shapes are
+load-bearing: they affect how call sites in examples work
+(`users.bucketSort<User>(...)` only compiles because the first
+parameter is named `self`), and a doc pass that "cleans them up" can
+silently invalidate every example you just wrote.
+
+### 8. Module doc must be at the top of the file
 
 `mo-doc` only treats a `///` block as the module description when it
 appears at the very beginning of the file, ahead of the `import`
@@ -248,21 +260,45 @@ public type Request = {
    awk '
      FNR==1{prev=""}
      {
-       if ($0 ~ /^[[:space:]]*public[[:space:]]+(type|func|class|let)\b/) {
-         p=prev; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p);
+       if ($0 ~ /^[ \t]*public[ \t]+(type|func|class|let)([ \t(]|$)/) {
+         p=prev; gsub(/^[ \t]+|[ \t]+$/, "", p);
          if (p !~ /^\/{3}/) printf "%s:%d:%s\n", FILENAME, FNR, $0;
        }
-       if ($0 !~ /^[[:space:]]*$/) prev=$0;
+       if ($0 !~ /^[ \t]*$/) prev=$0;
      }
    ' src/*.mo src/**/*.mo
    ```
    Empty output = all public declarations are preceded by a `///` line.
+
+   **Portability**: use `[ \t]+` (and explicit `[ \t(]` boundaries) instead of
+   `[[:space:]]+` / `\b`. BSD/macOS awk silently fails to match POSIX classes
+   here — the script returns empty output and looks like a pass. The cost of
+   this miss is a full iteration to diagnose.
+
+   **Known false positives** (don't waste edits "fixing" these — mo-doc itself
+   handles both cases correctly):
+   - A legacy `// ...` comment between the `///` block and the `public ...`
+     line. The skill's format guidance explicitly allows this layout, but the
+     audit awk only looks at the immediately previous non-blank line. Verify
+     by reading the rendered HTML before assuming a real miss.
+   - A `public func` / `public let` inside a `/* ... */` block comment.
+     The awk has no notion of block comments, so commented-out code shows up
+     as missing. Cross-check by `grep`-ing the file for `/*` near the flagged
+     line.
+
 4. Generate docs:
    ```bash
+   # mo-doc will NOT create nested output subdirectories on its own.
+   # If src/ has subdirectories, mkdir -p the mirrored paths under
+   # docs/ first or the run aborts on the first file it can't write.
+   mkdir -p docs $(find src -mindepth 1 -type d | sed 's|^src|docs|')
    mo-doc --source src --output docs --format html
    ```
-   No output = success. Any "Skipping ..." line indicates a syntax error
-   that must be fixed (often a stray `apply_patch` corruption).
+   No output = success. Two failure modes to watch for:
+   - A `Fatal error: exception Sys_error("docs/.../X.html: No such
+     file or directory")` means an output subdirectory is missing.
+   - Any `Skipping ...` line indicates a syntax error that must be
+     fixed (often a stray `apply_patch` corruption).
 5. Spot-check the rendered output:
     - `docs/index.html` — every module should appear in the listing.
     - Each `docs/<Module>.html` — module description, types, functions,
@@ -278,6 +314,16 @@ public type Request = {
   spec or BIP that defines the format and link to it.
 - Keep examples short and self-contained; prefer literal byte arrays over
   reading from external sources.
+
+### Files with many similar `public let`s (constants tables)
+
+Each `public let` needs its own `///` line — there is no syntax for a shared
+doc block. For files like FIPS round-constant tables (e.g. SHA256's
+`K00`..`K63`, SHA512's `K00`..`K79`), doing N individual `Edit` calls is
+slow and noisy. Read the file once and rewrite it whole with `Write`,
+emitting one `/// <name> round constant K<NN>.` line per entry. A
+module-level `///` at the top can carry the shared context (spec section,
+purpose) so the per-entry lines stay terse.
 
 ## Documenting Error and Trap Behavior (REQUIRED)
 
@@ -388,6 +434,10 @@ has not seen the implementation. For every doc, ask:
 - What is the unit / format of each argument and the return value?
   (bytes vs. bits, big- vs. little-endian, satoshis vs. BTC, raw vs.
   DER-encoded, compressed vs. uncompressed, 0-based vs. 1-based, …)
+- For Motoko array parameters, is `[T]` (immutable) vs. `[var T]`
+  (mutable) clear? Examples that mix `Array.tabulate` (returns `[T]`)
+  with `VarArray.repeat` (returns `[var T]`) routinely confuse
+  newcomers — spell out which shape the function expects.
 - What are the size or range constraints on each input?
 - Which BIP / RFC / spec defines the format, and is it linked?
 - For mutating methods, what state changes? Is the receiver still usable

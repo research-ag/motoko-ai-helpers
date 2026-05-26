@@ -77,10 +77,20 @@ module {
 Notes:
 - The `Schema` field is `cols`, not `columns`. Same for `rows.size()` — you
   must say `schema.rows.size()` (the bare `rows` identifier is not in scope).
-- `Array.init` in `mo:core` returns a *mutable* `[var T]`; pair `[var T]`
-  inputs with `[[var Nat8]]` annotations, or use `Array.tabulate` for the
-  immutable `[Nat8]` shown above.
+- `mo:core/Array` has no `init` function. To build an immutable `[T]`, use
+  `Array.tabulate<T>(size, gen)` or `Array.repeat<T>(val, size)`. For a
+  mutable `[var T]`, import `VarArray "mo:core/VarArray"` and use
+  `VarArray.tabulate<T>(size, gen)` or `VarArray.repeat<T>(val, size)`;
+  annotate such inputs as `[var T]` (e.g. `[[var Nat8]]` for a table of them).
 - If you're not using `mo:core`, replace `mo:core` imports with `mo:base`.
+  Note that `mo:base/Array` covers both immutable and mutable arrays — there
+  is no separate `VarArray` module. The interface is not identical to
+  `mo:core`; for the Array API the relevant equivalences are:
+    - `mo:core` `Array.tabulate(size, gen)` → `mo:base` `Array.tabulate(size, gen)`
+    - `mo:core` `Array.repeat(val, size)` → `mo:base` `Array.freeze(Array.init(size, val))` (no direct immutable `repeat`)
+    - `mo:core` `VarArray.tabulate(size, gen)` → `mo:base` `Array.tabulateVar(size, gen)`
+    - `mo:core` `VarArray.repeat(val, size)` → `mo:base` `Array.init(size, val)` (args reversed)
+  See the `base-core-migration` skill for the full mapping.
 
 ## How It Works
 

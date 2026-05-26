@@ -110,6 +110,18 @@ only placement that `mo-doc` actually attaches to the module page —
 a doc block placed between the imports and `module { ... }` is silently
 ignored and the rendered module page will have no description.
 
+**All `.mo` files** MUST have a module-level `///` doc string at the very
+top of the file (before the `import` statements). This applies to every
+Motoko source file, not just modules with public APIs — having a doc
+block at the top ensures `mo-doc` renders a meaningful module page and
+helps maintainers quickly understand the file's purpose.
+
+**Special case for Mixins**: This rule is especially important for files
+using the `mixin` keyword. Even though `mo-doc` currently skips files
+with the `mixin` keyword due to syntax differences, the doc string MUST
+still be placed at the very top of the file to ensure compatibility with
+future tool updates and maintainer readability.
+
 ```motoko
 /// One-line module summary.
 ///
@@ -212,6 +224,27 @@ HTML. If you find an existing project with module docs adjacent to
 script that finds the trailing `///` block before `module ` and prepends
 it to the file works well for batch migration).
 
+### 8. Documenting Record Types
+
+For record types with multiple members, documenting each member with a
+per-line `///` can make the code and the rendered documentation very
+verbose. Instead, prefer documenting all members in a single block above
+the type declaration. Use backticks for member names.
+
+```motoko
+/// An HTTP request.
+/// `method`: HTTP method (e.g., "GET", "POST").
+/// `url`: Request URL.
+/// `headers`: List of headers.
+/// `body`: Request body.
+public type Request = {
+  method : Text;
+  url : Text;
+  headers : [(Text, Text)];
+  body : Blob;
+};
+```
+
 ## Workflow
 
 1. Inventory public declarations:
@@ -219,9 +252,9 @@ it to the file works well for batch migration).
    grep -RInE "public (type|func|class|let)" src
    ```
 2. For each `.mo` file:
-   - Add a module-level `///` block (with a `name=import` example) at the beginning of the file, even before the block of import statements.
-   - Add `///` blocks above every public declaration inside the top-level modules.
-   - Recurse into nested public declarations. For instance public members of public classes need doc strings. Public members of public modules need doc strings. And so on.
+    - Add a module-level `///` block (with a `name=import` example) at the beginning of the file, even before the block of import statements.
+    - Add `///` blocks above every public declaration inside the top-level modules.
+    - Recurse into nested public declarations. For instance public members of public classes need doc strings. Public members of public modules need doc strings. And so on.
 3. Re-scan to catch anything missed:
    ```bash
    awk '
@@ -250,9 +283,9 @@ it to the file works well for batch migration).
    - Any `Skipping ...` line indicates a syntax error that must be
      fixed (often a stray `apply_patch` corruption).
 5. Spot-check the rendered output:
-   - `docs/index.html` — every module should appear in the listing.
-   - Each `docs/<Module>.html` — module description, types, functions,
-     and class members should all show their text.
+    - `docs/index.html` — every module should appear in the listing.
+    - Each `docs/<Module>.html` — module description, types, functions,
+      and class members should all show their text.
 
 ## Tips for Writing Useful Descriptions
 
@@ -299,7 +332,11 @@ For each failure mode, state in the doc:
    separately when the variants carry meaning.
 
 Use a dedicated `Traps` and/or `Errors` paragraph (or both) at the end of
-the doc, after the example and before the runtime/space notes:
+the doc, after the example and before the runtime/space notes.
+
+**CRITICAL**: Use the wording **"Traps"** (capitalised, present tense) for
+unrecoverable failures (e.g., `assert`, `trap`). This makes the failure
+modes highly visible in rendered docs and easily greppable.
 
 ```motoko
 /// Decodes a Base58-encoded string into the original byte array.
@@ -325,9 +362,6 @@ For graceful errors:
 /// - the version byte does not match `network`.
 public func decode(wif : Text, network : Network) : Result<PrivateKey, Text> { ... };
 ```
-
-Use the wording **"Traps"** (capitalised, present tense) for unrecoverable
-failures so it stands out and is greppable across the codebase.
 
 ### Pure / total functions
 

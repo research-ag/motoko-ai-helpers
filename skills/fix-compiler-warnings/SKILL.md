@@ -7,7 +7,7 @@ description: "Guidelines for fixing Motoko compiler warnings (moc). Use when ask
 
 ## How to Run the Build Check
 
-### For DFX projects:
+### For DFX projects (build **Motoko canisters only**):
 
 ```bash
 dfx build --check 2>&1 | tee /tmp/dfx_build_output.txt
@@ -26,7 +26,7 @@ This uses `moc --check` on each file individually to avoid excessive warnings. I
 ### For ICP-CLI projects:
 
 ```bash
-icp build --check 2>&1 | tee /tmp/icp_build_output.txt
+icp build 2>&1 | tee /tmp/icp_build_output.txt
 ```
 
 This uses the modern `icp-cli` tool to type-check the project.

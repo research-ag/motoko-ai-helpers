@@ -562,13 +562,13 @@ Ready for review. Run `git push -u origin HEAD` to push.
             run: dfx start --background --clean
     ```
 
-9. **`mops add` rewrites `mops.toml`.** Running `mops add <package>`
-   regenerates the file and can silently revert `[requirements] moc`
-   to its default (typically `"1.0.0"`). After every `mops add`, diff
-   `mops.toml` and restore `[requirements] moc` to the value the
-   maintenance run requires.
+11. **`mops add` rewrites `mops.toml`.** Running `mops add <package>`
+    regenerates the file and can silently revert `[requirements] moc`
+    to its default (typically `"1.0.0"`). After every `mops add`, diff
+    `mops.toml` and restore `[requirements] moc` to the value the
+    maintenance run requires.
 
-10. **Pre-existing scratch files.** Snapshot the untracked-file list
+12. **Pre-existing scratch files.** Snapshot the untracked-file list
     *before* you start making changes (`git status --short > /tmp/baseline.txt`)
     so you can tell at Step 11 which untracked files predate your
     work. Files that were already there are usually scratch and

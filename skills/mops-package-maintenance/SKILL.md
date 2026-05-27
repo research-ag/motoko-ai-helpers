@@ -269,9 +269,13 @@ but do not block the release unless the user explicitly asks.
 — the benchmarks compiled fine; you're looking at a `dfx` / `pocket-ic`
 / `mops` agent compatibility issue, not anything the dependency bump
 introduced. Try, in order: kill stale `pocket-ic`/`dfx` processes;
-remove `pocket-ic` from `[toolchain]` to fall back to `dfx replica`;
-remove the `bench` job from CI and flag the issue to the user. Do NOT
-spend the release on chasing a moving target outside the package.
+if `pocket-ic` is in `[toolchain]`, remove it so `mops bench` falls
+back to `dfx replica` (which is the preferred runtime anyway —
+`dfx` gives more accurate and more reliable numbers than
+`pocket-ic`); as a last resort, remove the `bench` job from CI and
+flag the issue to the user. Do NOT spend the release on chasing a
+moving target outside the package, and do NOT add `pocket-ic` to
+`mops.toml` to try to fix this.
 
 ### Step 6 — Update the CHANGELOG
 
@@ -385,9 +389,9 @@ Follow its instructions to create or update a comprehensive CI workflow (usually
 
 **If the `motoko-github-ci-workflow` skill is NOT installed:**
 
-**CRITICAL — Do NOT modify `mops.toml` `[toolchain]`:** Always use whatever is already configured in `mops.toml`. Do **NOT** add `pocket-ic` to the `[toolchain]` section automatically. Adding `pocket-ic` and then discovering it doesn't work with the package's tests/benchmarks wastes significant time. Treat this like the `files` field — leave it to the user to add manually if they want it.
+**CRITICAL — Do NOT modify `mops.toml` `[toolchain]`:** Always use whatever is already configured in `mops.toml`. Do **NOT** add `pocket-ic` to the `[toolchain]` section automatically — ever. We favour `dfx` over `pocket-ic` for `mops bench`: `dfx` produces more accurate and stable benchmark numbers (the difference can be substantial) and has proven significantly more reliable. Treat `[toolchain]` like the `files` field — leave it to the user to add `pocket-ic` manually only if they explicitly opt in.
 
-Create or update a consolidated GitHub Actions workflow (usually `.github/workflows/ci.yml`) that includes both code formatting checks and tests. If the package has **benchmarks** but `pocket-ic` is **not** in `mops.toml`'s `[toolchain]` section, the CI workflow MUST install `dfx` before running `mops bench` (see Pitfall #10 below for the exact snippet).
+Create or update a consolidated GitHub Actions workflow (usually `.github/workflows/ci.yml`) that includes both code formatting checks and tests. If the package has **benchmarks**, the CI workflow MUST install `dfx` (the default and preferred runtime) before running `mops bench` (see Pitfall #10 below for the exact snippet). The only exception is when `pocket-ic` is *already* in `[toolchain]` and the user has explicitly opted into it — in which case install `pocket-ic` and invoke `mops bench --replica pocket-ic` instead.
 
 If no CI exists, create `.github/workflows/ci.yml` with the following content:
 
@@ -414,6 +418,15 @@ jobs:
           mops toolchain init
           mops install
       - run: mops test   # Omit if no tests exist
+      # If the package has benchmarks (the default path), install dfx
+      # before `mops bench` (mops bench starts and stops the replica
+      # itself). Omit these two steps if there are no benchmarks.
+      # Alternative (only when `pocket-ic` is already in `mops.toml`
+      # [toolchain] and the user explicitly opted in): replace the dfx
+      # install step with `mops toolchain bin pocket-ic` and change the
+      # bench command to `mops bench --replica pocket-ic`.
+      - name: Install dfx
+        uses: dfinity/setup-dfx@main
       - run: mops bench  # Omit if no benchmarks exist
 
   fmt:
@@ -531,17 +544,23 @@ Ready for review. Run `git push -u origin HEAD` to push.
 
 9. **Including toolchain or dev-dependency bumps in CHANGELOG.** Never include `[toolchain]` or `[dev-dependencies]` bumps in the CHANGELOG. They clutter the history with internal development details that do not affect the package's consumers. Only include `[requirements]` or `[dependencies]` if they were explicitly upgraded.
 
-10. **Missing `pocket-ic` in toolchain — install `dfx` in CI instead.** Never add `pocket-ic` to `mops.toml` automatically (see Step 9c). If the package has **benchmarks** AND `pocket-ic` is **not** present in `mops.toml`'s `[toolchain]` section, `mops bench` will fail in CI unless `dfx` is installed. In practice, `mops bench` with `pocket-ic` has proven unreliable on several repositories, so `dfx` is often the only working option. In that case, add a `dfx` installation step to the CI workflow **before** the `mops bench` step. Use the official installer and start the local replica so `mops bench` can connect:
+10. **`mops bench` runtime in CI: install `dfx` by default; never auto-add `pocket-ic` to `mops.toml`.** We favour `dfx` over `pocket-ic` for benchmarks: `dfx` produces more accurate, stable numbers (the difference can be substantial) and has proven significantly more reliable. Never add `pocket-ic` to `mops.toml` automatically (see Step 9c). If the package has **benchmarks**, add a `dfx` installation step to the CI workflow **before** the `mops bench` step. Use the official installer — there is no need to start the replica manually; `mops bench` starts (and stops) it itself:
 
     ```yaml
           - name: Install dfx
             uses: dfinity/setup-dfx@main
-          - name: Start dfx
-            run: dfx start --background --clean
           - run: mops bench
     ```
 
-    Place this **only** in the job that runs `mops bench`, and only when the two conditions above are met (benchmarks exist AND `pocket-ic` is absent from `[toolchain]`).
+    Place this **only** in the job that runs `mops bench`. The only exception is when `pocket-ic` is **already** present in `[toolchain]` and the user has explicitly opted in: in that case you may omit the `dfx` step and instead install pocket-ic (`mops toolchain bin pocket-ic`) and run `mops bench --replica pocket-ic`. Even then, `dfx` remains the preferred default unless the user has specifically chosen `pocket-ic`.
+
+    **Remove any redundant `dfx start` step.** If you find an existing workflow that runs `dfx start --background --clean` (or similar) before `mops bench`, delete that step. `mops bench` starts and stops its own local replica, so a manual `dfx start` step is unnecessary and should be removed:
+
+    ```yaml
+          # REMOVE this step if present — mops bench manages the replica itself:
+          - name: Start dfx
+            run: dfx start --background --clean
+    ```
 
 9. **`mops add` rewrites `mops.toml`.** Running `mops add <package>`
    regenerates the file and can silently revert `[requirements] moc`

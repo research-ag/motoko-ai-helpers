@@ -34,6 +34,7 @@ public class ArrayWrapper<T>() {
   public func share() : SharedData<T> = { arr };
   public func unshare(d : SharedData<T>) { arr := d.arr };
 };
+
 ```
 
 …and on the actor side:
@@ -42,9 +43,10 @@ public class ArrayWrapper<T>() {
 actor {
   stable var data : ArrayWrapper.SharedData<Nat> = { arr = [] };
   let wrapper = ArrayWrapper.ArrayWrapper<Nat>();
-  system func preupgrade()  { data := wrapper.share() };
+  system func preupgrade() { data := wrapper.share() };
   system func postupgrade() { wrapper.unshare(data) };
 };
+
 ```
 
 In the static module style the type *itself* is a stable record, so all that ceremony disappears:
@@ -57,6 +59,7 @@ module ArrayWrapper {
     self.arr := Array.append(self.arr, [e]);
   };
 };
+
 ```
 
 ```motoko
@@ -65,6 +68,7 @@ actor {
   // call sites look exactly like the class version thanks to dot-notation:
   arr.push(1);
 };
+
 ```
 
 ## Conversion Rules
@@ -77,6 +81,7 @@ For each `class Foo<T>(initArgs)` in the package:
 
    ```motoko
    public type Foo<T> = { var field1 : A; var field2 : B; ... };
+
    ```
 
    - Use `var` on fields that the methods mutate; leave the rest immutable.
@@ -85,7 +90,8 @@ For each `class Foo<T>(initArgs)` in the package:
 3. **Replace the constructor with a `new` (or `empty` / `fromX`) function** that returns the record:
 
    ```motoko
-   public func new<T>(initArgs) : Foo<T> = { var field1 = ...; var field2 = ... };
+   public func new<T>(initArgs) : Foo<T> = { var field1 =...; var field2 =... };
+
    ```
 
    Mirror `mo:core` naming: `empty()`, `singleton(x)`, `fromIter(it)`, `fromArray(xs)`, etc. — see `motoko-general-style-guidelines` ("Conventions").
@@ -100,6 +106,7 @@ For each `class Foo<T>(initArgs)` in the package:
    public func push<T>(self : Foo<T>, e : T) {
      self.arr := Array.append(self.arr, [e]);
    };
+
    ```
 
    Notes:
@@ -115,6 +122,7 @@ For each `class Foo<T>(initArgs)` in the package:
    - Declare the value directly as a stable variable:
      ```motoko
      stable var arr : Foo.Foo<Nat> = Foo.new();
+
      ```
    - Keep call sites unchanged: `arr.push(e)` still works via dot-notation.
 
@@ -151,18 +159,20 @@ module {
     public func size<T>(self : Bar<T>) : Nat = self.arr.size();
   };
 };
+
 ```
 
 Call sites stay identical to the original class-style API:
 
 ```motoko
-import { Foo; Bar } "Wrappers";   // or however the project imports the named module
+import { Foo; Bar } "Wrappers"; // or however the project imports the named module
 
 stable var f : Foo.Foo<Nat> = Foo.new();
 stable var b : Bar.Bar<Nat> = Bar.new("xs");
 
-f.push(1);   // resolves to Foo.push(f, 1)
-b.push(2);   // resolves to Bar.push(b, 2)
+f.push(1); // resolves to Foo.push(f, 1)
+b.push(2); // resolves to Bar.push(b, 2)
+
 ```
 
 Rules:
@@ -191,6 +201,10 @@ Rules:
 
 8. **Iteration.** Provide `values`, `keys`, `entries`, ... as `func values<T>(self : Foo<T>) : Iter.Iter<T>` so `for (x in xs.values()) { ... }` works the same way as on `mo:core` collections.
 
+9. **Field name vs. factory name collision.** If the original class had a field named `new` (or any other name that you also want to use as a factory function — `empty`, `clone`, ...), the field and the factory will collide inside the module: `self.new` is the field, but `Foo.new<X>()` is the factory. Both compile because they live in different namespaces (record field vs. module function), but it is easy to confuse them while reading the migrated code. When you spot such a collision, either (a) rename the field to something that does not look like a factory (e.g. `current`, `buf`), or (b) leave the names as-is but add a short comment at the type definition pointing out the difference. Do *not* rename the factory — keep `new` / `empty` / `fromX` to match `mo:core`.
+
+10. **Sibling nested modules call each other via dot-notation on the record, not via the module name.** When file `Wrappers.mo` declares both `Foo` and `Bar` as nested `public module`s and a `Foo` value has a field of type `Bar.Bar<X>`, inside `Foo`'s functions you should write `self.bar.push(x)` (dot-notation on the record) rather than `Bar.push(self.bar, x)`. Both compile, but dot-notation keeps the migrated body visually identical to the original class body and avoids forcing the reader to remember which sibling module owns which method.
+
 ## Minimal Example (end-to-end)
 
 ### Before — class style
@@ -215,6 +229,7 @@ module {
     public func unshare(d : SharedData<T>) { arr := d.arr };
   };
 };
+
 ```
 
 ```motoko
@@ -225,12 +240,13 @@ actor {
   stable var data : ArrayWrapper.SharedData<Nat> = { arr = [] };
   let wrapper = ArrayWrapper.ArrayWrapper<Nat>();
 
-  system func preupgrade()  { data := wrapper.share() };
+  system func preupgrade() { data := wrapper.share() };
   system func postupgrade() { wrapper.unshare(data) };
 
   public func add(n : Nat) : async () { wrapper.push(n) };
   public query func count() : async Nat { wrapper.size() };
 };
+
 ```
 
 ### After — static module style
@@ -250,6 +266,7 @@ module {
 
   public func size<T>(self : ArrayWrapper<T>) : Nat = self.arr.size();
 };
+
 ```
 
 ```motoko
@@ -263,6 +280,7 @@ actor {
   public func add(n : Nat) : async () { wrapper.push(n) };
   public query func count() : async Nat { wrapper.size() };
 };
+
 ```
 
 What disappeared: `class`, `share`, `unshare`, the `SharedData` type, the auxiliary `let wrapper = ...`, `preupgrade`, and `postupgrade`.
@@ -288,7 +306,7 @@ Do not start the migration until every applicable pre-flight check is green. The
 ### 0. Build the dependency order (do this once, before touching code)
 
 1. List every `class` in the package.
-2. For each class, note which *other classes from the same package* appear in its fields, constructor, or method signatures/bodies.
+2. For each class, note which _other classes from the same package_ appear in its fields, constructor, or method signatures/bodies.
 3. Sort the list so that **leaf / utility classes come first** and the **top-level / "main" class comes last**. A class may only be migrated after every class it depends on has already been migrated.
 4. If there is a dependency cycle between classes, break it first (extract a shared type, or merge the classes) — cycles cannot be migrated in this scheme.
 
@@ -304,6 +322,27 @@ Do not start the migration until every applicable pre-flight check is green. The
 8. **Run `mops bench`** *if a `bench/` folder exists in the package*. Fix any compile or runtime errors the same way.
 9. **Build every example project** under `example/` / `examples/` *if such a directory exists*. Each example must compile; update its sources too if the migrated class's API surface changed in a way that affects them (it usually doesn't, thanks to dot-notation, but the stable-var type and any leftover `share`/`unshare`/`preupgrade`/`postupgrade` plumbing in the example actor will need to be updated).
 10. **Only when `mops test`, (if present) `mops bench`, and (if present) every example build pass cleanly, move on to the next class in the dependency order.** Never start migrating class N+1 while class N still has failing tests, benchmarks, or example builds.
+
+### 1b. Migrating tests that exercised `share` / `unshare`
+
+Existing test files often have a "round-trip" test of the form `let b2 = Foo<T>(); b2.unshare(a.share()); assert b2 ≡ a`. After the migration there is nothing to round-trip — the record *is* the stable representation. Replace such a test with a **type-level aliasing check**:
+
+```motoko
+let buf1 : Foo.Foo<Nat> = buf; // compiles if Foo.Foo<Nat> is the public stable type
+for (i in...) { assert buf1.getOpt(i) == buf.getOpt(i) };
+
+```
+
+This keeps the original intent ("the public stable representation round-trips losslessly") while removing all calls to the deleted `share` / `unshare`. Do not delete the test outright — keep it as evidence that the type is stable-shareable and structurally equal to itself.
+
+### 1c. Choosing the test-file import style
+
+Both import styles work after migration; pick whichever requires the fewest call-site edits in the existing tests:
+
+- **Keep the old alias** (`import SWB "../src/lib";`). Call sites become `SWB.Foo.new<T>()` and `SWB.Foo.Foo<T>` — only the constructor call changes, every `buf.method(...)` line is untouched.
+- **Destructure the inner module** (`import { Foo } "../src/lib";`). Call sites become `Foo.new<T>()` and `Foo.Foo<T>` — slightly shorter but requires renaming every occurrence of the old alias.
+
+Whichever you choose, apply it consistently within a file. Do *not* mix `SWB.Foo.new(...)` and `Foo.new(...)` in the same test file — that has caused real confusion (and broken builds) during past migrations.
 
 ### 2. After the last (top-level) class is migrated
 

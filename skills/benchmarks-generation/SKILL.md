@@ -14,9 +14,32 @@ benchmark module. A runner can then discover and execute all benches consistentl
 
 ## Prerequisites
 
+**mops CLI ≥ 2.0.** Check with `mops --version` before doing anything else.
+Versions ≥ 2.0 generate a benchmark wrapper canister that consumes
+`bench-helper` directly. Versions < 2.0 generate a wrapper that imports
+`mo:base` and the legacy `mo:bench` package — bench-helper is not yet
+known to that runner, so `mops bench` will fail with errors like:
+
+```
+canister.mo:1.1-1.29: import error [M0010], package "base" not defined
+canister.mo:9.1-9.24: import error [M0010], package "bench" not defined
+```
+
+If you see those errors, the wrapper is the problem, not your bench file
+or your `[dev-dependencies]`. Do **NOT** "fix" them by adding `base` or
+`bench` to `[dev-dependencies]` — that papers over a stale CLI. Upgrade
+instead:
+
+```bash
+npm i -g ic-mops@latest
+```
+
 mops.toml (add dependencies and toolchain)
 
 If you already have a `mops.toml`, just add `bench-helper` under `[dev-dependencies]`.
+`bench-helper` is the **only** package the skill requires you to add for
+benches — never add `base` or `bench` to satisfy auto-generated wrapper
+imports.
 If your project still uses `mo:base` instead of `mo:core`, you can keep it — benches themselves can be written with
 `mo:base` without affecting your runtime canisters.
 

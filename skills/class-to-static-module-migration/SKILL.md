@@ -319,9 +319,10 @@ Do not start the migration until every applicable pre-flight check is green. The
 5. **Delete `share` / `unshare`** and the `SharedData` type (or keep a one-release alias `type SharedData<T> = Foo<T>`).
 6. **Update in-package call sites** of *this* class (other modules in the package, tests, benchmarks, and any projects under `example/` / `examples/`): remove `share`/`unshare`/`preupgrade`/`postupgrade`, change stable var types, keep call sites as-is thanks to dot-notation.
 7. **Run `mops test`.** Fix every failure before going further — missed `<T>`, missed `self.` prefix, leftover `share`/`unshare` calls, etc.
+   - **CRITICAL:** If tests won't launch (e.g., environment issue, missing runner) and you cannot easily fix it (within 1-2 quick steps), **interrupt the whole task immediately** and ask the user for the next prompt. Do NOT proceed with the migration without a working test/verification suite.
 8. **Run `mops bench`** *if a `bench/` folder exists in the package*. Fix any compile or runtime errors the same way.
 9. **Build every example project** under `example/` / `examples/` *if such a directory exists*. Each example must compile; update its sources too if the migrated class's API surface changed in a way that affects them (it usually doesn't, thanks to dot-notation, but the stable-var type and any leftover `share`/`unshare`/`preupgrade`/`postupgrade` plumbing in the example actor will need to be updated).
-10. **Only when `mops test`, (if present) `mops bench`, and (if present) every example build pass cleanly, move on to the next class in the dependency order.** Never start migrating class N+1 while class N still has failing tests, benchmarks, or example builds.
+10. **ASK FOR PERMISSION.** Once `mops test`, (if present) `mops bench`, and (if present) every example build pass cleanly for the current class, **stop and ask the user for the next prompt**. Expect the user to write "continue" or "proceed" before you start migrating the next class in the dependency order. Never migrate multiple classes in a single turn without user approval for each one.
 
 ### 1b. Migrating tests that exercised `share` / `unshare`
 

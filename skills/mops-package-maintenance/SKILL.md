@@ -8,37 +8,57 @@ description: Automate maintaining a Motoko mops package — upgrade dependencies
 ## What This Is
 
 A step-by-step playbook for an AI agent to fully maintain a Motoko package
-published on [MOPS](https://mops.one). The workflow upgrades all
-dependencies, validates the package still works, polishes documentation,
-formats the code, ensures a robust CI workflow, and prepares a versioned
+published on [MOPS](https://mops.one): upgrade dependencies, validate the
+package, polish docs, format the code, ensure CI, and prepare a versioned
 release branch — all in one automated pass.
 
 ## When to Use
 
 - Periodic dependency-bump maintenance runs.
-- Before cutting a new release of a MOPS package.
+- Before cutting a new release.
 - When the user asks to "update deps", "maintain the package", or
   "prepare a release".
 
+## Key Conventions (apply throughout)
+
+These rules are referenced from individual steps. Read them once.
+
+- **`dfx` is the preferred bench runtime, not `pocket-ic`.** `dfx`
+  produces more accurate, more stable benchmark numbers (often by a
+  substantial margin) and is significantly more reliable. **Never add
+  `pocket-ic` to `mops.toml` `[toolchain]` automatically** — leave that
+  to the user as an explicit opt-in. Treat `[toolchain]` like the
+  `files` field: hands-off.
+- **Hands-off fields in `mops.toml`:** never auto-edit `[package] files`
+  or auto-add entries to `[toolchain]`. Report and warn instead.
+- **CHANGELOG only lists consumer-visible bumps:** `[dependencies]`
+  and `[requirements]`. Never list `[toolchain]` or
+  `[dev-dependencies]`.
+- **Documentation gate:** if MOPS reports Documentation = 100% (Step 1),
+  skip Steps 7 and 8 entirely. Otherwise aim for 100% — fill in every
+  missing `///` doc string on a public declaration at minimum.
+- **No `moc --check` in CI.** It's a local-only check the agent runs
+  during maintenance; different CI compiler versions could cause
+  spurious failures for consumers.
+- **`mops add` rewrites `mops.toml`** and can silently reset
+  `[requirements] moc` to `"1.0.0"`. Diff after every `mops add` and
+  restore the intended value.
+
 ## Prerequisites
 
-The following tools must be available on the machine:
-
-- `mops` CLI (install: `npm i -g ic-mops`)
-- `moc` (Motoko compiler; usually ships with `dfx`, but can be standalone)
-- `dfx` (DFINITY SDK; optional if `moc` and `mops` are otherwise available)
-- `node` (>= 20) / `npm` — the `mops` CLI uses ESM imports that fail on
-  Node 18 with `SyntaxError: ... does not provide an export named
-  'addAbortListener'`. Check with `node --version` first.
+- `mops` CLI (`npm i -g ic-mops`)
+- `moc` (Motoko compiler; ships with `dfx` or standalone)
+- `dfx` (DFINITY SDK; optional if `moc` + `mops` cover your needs)
+- `node` >= 20 / `npm` (Node 18 breaks `mops` with
+  `SyntaxError: ... 'addAbortListener'`). Verify with `node --version`.
 - `git`
-- `prettier` and `prettier-plugin-motoko` — install locally before
-  running prettier (see Step 9b); `npx -y` alone does not auto-resolve
-  the plugin in a clean checkout.
+- `prettier` and `prettier-plugin-motoko` — install **locally** before
+  running prettier; `npx -y` alone does not auto-resolve the plugin in
+  a clean checkout.
 
 ## Workflow
 
-Work through every step in order. Do NOT skip steps. If a step fails,
-fix the issue before moving on.
+Work through every step in order. If a step fails, fix it before moving on.
 
 ### Step 0 — Create a maintenance branch
 
@@ -46,121 +66,120 @@ fix the issue before moving on.
 git checkout -b chore/dependency-bump-$(date +%Y-%m-%d)
 ```
 
-All subsequent changes are committed on this branch.
+Also snapshot the untracked-file list now so you can tell scratch files
+from your own additions in Step 11:
+
+```bash
+git status --short > /tmp/baseline.txt
+```
 
 ### Step 1 — Verify Package Quality on MOPS
 
-1. Open `mops.toml` and check if it has a `[package]` section. If it only has `[canister]` sections or neither, this is not a published package; skip to Step 2.
-2. If it is a package, find the `name` field under `[package]`.
-3. Go to `https://mops.one/<name>` (replace `<name>` with the package name).
-4. Locate the **Package Quality** section on the page.
-   - `mops.one` is a single-page application: `curl`, `WebFetch`, and
-     other non-browser HTTP clients see only an empty HTML shell. If
-     you cannot render the page interactively, generate the quality
-     signals locally instead — run `mo-doc` and grep the rendered
-     HTML for `(no description)`; verify `[package] license` and
+1. Open `mops.toml`. If it has no `[package]` section (only `[canister]`,
+   or neither), it's not a published package — skip to Step 2.
+2. Otherwise visit `https://mops.one/<package-name>` and review the
+   **Package Quality** section (Documentation, License, Repository,
+   Tests, Benchmarks).
+   - `mops.one` is a SPA — `curl`/`WebFetch` see only an empty shell.
+     If you can't render it, derive signals locally: run `mo-doc` and
+     grep for `(no description)`; verify `[package] license` and
      `[package] repository` in `mops.toml`; confirm `mops test` and
-     `mops bench` succeed — and ask the user to confirm any metric
-     you cannot verify programmatically.
-5. Review the status of each quality metric (e.g., Documentation, License, Repository, Tests, Benchmarks).
-6. If any metric is not **"yes"** or **"100%"**, attempt to fix it:
-    - **Documentation < 100%**: You MUST run the `motoko-doc-strings` skill to improve doc-string coverage. The goal is to reach **100%** — at minimum, identify every public declaration that is missing a `///` doc string and fill it in.
-    - **Documentation == 100%**: Skip documentation improvements. Do NOT run the `motoko-doc-strings` skill, and skip Step 7 and Step 8.
-    - **Missing License/Repository**: Ensure these fields are correctly set in `mops.toml` `[package]` section.
-    - **Tests/Benchmarks failing/missing**: These will be addressed in Step 4 and Step 5. You MUST also ensure a proper CI workflow is in place by following Step 9c (especially if the `motoko-github-ci-workflow` skill is installed).
-7. If a quality issue cannot be fixed automatically, raise a warning to the user.
+     `mops bench` succeed. Ask the user to confirm anything you can't
+     verify programmatically.
+3. For any metric that isn't **"yes"** / **"100%"**:
+   - **Documentation < 100%**: run the `motoko-doc-strings` skill in
+     Steps 7–8. If already 100%, skip Steps 7–8.
+   - **Missing License/Repository**: set them in `mops.toml` `[package]`.
+   - **Tests/Benchmarks**: handled in Steps 4–5; ensure CI in Step 9c.
+4. Raise a warning to the user for anything that can't be auto-fixed.
 
 ### Step 2 — Discover outdated dependencies
 
-Use the `mops outdated` command to identify which dependencies have newer versions available:
-
 ```bash
 mops outdated
+# Fallback: mops search <package-name>
 ```
 
-If `mops outdated` fails or is unavailable, you can manually check individual packages:
+Record packages needing upgrades.
 
-```bash
-mops search <package-name>
-```
-
-Compare the installed versions in `mops.toml` with the latest available versions. Record which packages need upgrading.
-
-**Important:** `moc` version in `[toolchain]` should usually be upgraded to the latest version to ensure a modern build environment. `moc` in `[requirements]` should be set to the **absolute minimum** version required for compatibility with upgraded dependencies (identified through exhaustive, non-skipping iterative testing), rather than blindly aligned with the latest toolchain version or dependency requirements. This avoids unnecessarily restricting consumers to the latest compiler.
+**`moc` policy:** upgrade `[toolchain] moc` to the latest; set
+`[requirements] moc` to the **absolute minimum** that still works
+(determined iteratively in Step 3) — do not blindly align it with
+the toolchain or with what dependencies declare.
 
 ### Step 3 — Upgrade dependencies in `mops.toml`
 
-For each outdated dependency in `[dependencies]` and `[dev-dependencies]`, update the version string in `mops.toml`
-to the latest version.
+Update versions for every outdated entry in `[dependencies]` and
+`[dev-dependencies]`.
 
-**Upgrading `moc` and `[requirements]`:**
-- **Check latest `moc`**:
-  ```bash
-  mops toolchain update moc
-  ```
-- `[toolchain] moc`: Upgrade this to the latest version. (Note: This is for development only and should NOT be listed in the CHANGELOG).
-- `[requirements]`: Determine the minimum `moc` version required for the package to function correctly.
-    1. **Initial version:**
-        - Identify the maximum `moc` version required by all **regular dependencies** (those in `[dependencies]`), EXCLUDING the `core` package.
-        - To do this:
-            1. Take exactly the dependencies from your root `mops.toml` `[dependencies]` section (excluding `core`).
-            2. Parse each dependency name and version.
-            3. Look at exactly the file `.mops/<name>@<version>/mops.toml`.
-            4. Extract the `moc` version from the `[requirements]` section (skip if no such section).
-            5. Take the maximum over all of them. This is your **Initial version**.
-        - If this calculated version is lower than the `moc` version currently set in your root `mops.toml` `[requirements]` section, use your current version instead.
-    2. **Check `core` requirement:** Identify the exact version of the `core` package from the `[dependencies]` section of your root `mops.toml`. After running `mops install`, look at the `moc` version in the `[requirements]` section of `.mops/core@<version>/mops.toml` (where `<version>` is the exact version of core under [dependency] section in our main mops.toml).
-    3. **Iterative Validation (if `core` requirement is higher):**
-       If the `core`'s `moc` requirement is greater than your initial version, you MUST find the minimum version between them that works.
-        - Identify all intermediate `moc` versions from your initial version to the `core`'s required version (inclusive).
-        - For each version `X` in this range (starting from the lowest):
-            - **CRITICAL:** You MUST test EVERY version in the range sequentially. Do NOT skip any versions (e.g., if 1.0.0 fails, do NOT jump to 1.4.0; you MUST test 1.1.0, 1.2.0, 1.3.0, etc.).
-            1. Temporarily set `[toolchain] moc = "X"` in `mops.toml`.
-            2. Run: `mops test` (if tests exist).
-            3. Run: `mops bench` (if benchmarks exist).
-            4. Build examples (if they exist). Build **Motoko canisters only** (ignore asset or Rust canisters). To build examples:
-               ```bash
-               # Detect and build examples/example
-               EXAMPLES_DIR=""
-               if [ -d "examples" ]; then EXAMPLES_DIR="examples"; elif [ -d "example" ]; then EXAMPLES_DIR="example"; fi
-               if [ -n "$EXAMPLES_DIR" ]; then
-                 cd "$EXAMPLES_DIR"
-                 mops install
-                 # Build Motoko canisters only
-                 if [ -f "icp.yaml" ] && command -v icp >/dev/null; then icp build --all; elif [ -f "dfx.json" ]; then dfx build; fi
-                 cd ..
-               fi
-               ```
-            5. If ALL steps pass without errors, set `[requirements] moc = "X"` in `mops.toml` and STOP. This is your new requirement.
-    4. **Failure Handling:** If something fails even on the highest version (the one required by `core`), revert `[requirements] moc` to your initial version and print a warning to the user that you failed to find a `moc` version that fits.
-    5. **Final sync:** Ensure `[toolchain] moc` is set back to the latest version after finding the requirement.
+**Determining `[requirements] moc`:**
 
-Then install (this will also download any missing dependencies to `.mops`):
+1. **Initial version** — the max `moc` required by your regular
+   `[dependencies]`, **excluding `core`**:
+   1. List `[dependencies]` from your root `mops.toml` (skip `core`).
+   2. For each, read `.mops/<name>@<version>/mops.toml` and extract
+      `[requirements] moc` (skip if absent).
+   3. Take the max. If lower than your current `[requirements] moc`,
+      keep the current value instead.
+2. **Check `core`** — after `mops install`, read
+   `.mops/core@<version>/mops.toml` `[requirements] moc`.
+3. **Iterative validation** (only if `core`'s requirement > initial):
+   You MUST test EVERY intermediate `moc` version sequentially — do
+   not skip (e.g., from 1.0.0 → 1.4.0; test 1.1.0, 1.2.0, 1.3.0…).
+   For each candidate `X`:
+   1. Set `[toolchain] moc = "X"`.
+   2. Run `mops test` (if tests exist).
+   3. Run `mops bench` (if benchmarks exist).
+   4. Build examples (Motoko canisters only — ignore asset/Rust):
+      ```bash
+      EXAMPLES_DIR=""
+      if [ -d "examples" ]; then EXAMPLES_DIR="examples"
+      elif [ -d "example" ]; then EXAMPLES_DIR="example"; fi
+      if [ -n "$EXAMPLES_DIR" ]; then
+        cd "$EXAMPLES_DIR"
+        mops install
+        if [ -f "icp.yaml" ] && command -v icp >/dev/null; then icp build --all
+        elif [ -f "dfx.json" ]; then dfx build; fi
+        cd ..
+      fi
+      ```
+   5. If all pass, set `[requirements] moc = "X"` and stop.
+4. **Failure:** if even `core`'s required version fails, revert
+   `[requirements] moc` to the initial value and warn the user.
+5. **Final sync:** restore `[toolchain] moc` to the latest version.
+
+Then install:
 
 ```bash
 mops install
 ```
 
-Verify that `mops install` completed successfully without resolution errors (e.g., version conflicts or missing packages) and that `mops.lock` was updated correctly to reflect the changes.
+Verify `mops install` succeeded without resolution errors and that
+`mops.lock` updated. Never hand-edit the lock file.
 
-#### Step 3a — Sync nested `mops.toml` files (examples/example, sub-projects)
+#### Step 3a — Sync nested `mops.toml` files
 
-Search the repository for any additional `mops.toml` files outside the
-root (commonly under `examples/`, `example/`, `bench/`, or sub-canister folders):
+Find every nested manifest (examples, sub-canisters, etc.):
 
 ```bash
 find . -name mops.toml -not -path "./node_modules/*" -not -path "./.mops/*"
 ```
 
-For **every** nested `mops.toml`, ensure:
+For each nested `mops.toml`:
 
-- Third-party `[dependencies]` versions **usually** match the root. Examples may occasionally have extra dependencies, but common ones should be in sync.
-- `[toolchain] moc` matches the root, and the version exists in the
-  fork used by the CI `setup-mops` action.
-- The package being maintained references itself by its **actual package name** with a **relative local path** to the directory containing the root `mops.toml` (e.g. `self-package-name = "../"` for `examples/mops.toml` or `example/mops.toml`). It should also include a comment with the latest version for easy manual replacement by consumers.
-- **Replace relative imports in source code:** Look into the source code of examples and sub-projects (e.g. `examples/**/*.mo` or `example/**/*.mo`). Identify imports that use relative paths to the root package's source (e.g. `import "../../src/Main"` or `import "../src"`). Replace these with the package name (e.g. `import "mo:self-package-name/Main"` or `import "mo:self-package-name"`). This ensures the examples are ready for copy-pasting by users and work immediately in a new project.
+- Third-party `[dependencies]` versions should generally match the root
+  (examples may add extras, but shared deps should align).
+- `[toolchain] moc` must match the root and exist in the fork used by
+  the CI `setup-mops` action.
+- The package being maintained must reference itself by its **real
+  package name** via a **relative local path**
+  (e.g. `self-package-name = "../"`), with a comment showing the latest
+  published version for easy manual swap by consumers.
+- **Replace relative source imports** in example `.mo` files:
+  `import "../../src/Main"` → `import "mo:self-package-name/Main"`.
+  This ensures examples are copy-paste ready.
 
-Example `examples/mops.toml` (or `example/mops.toml`):
+Example `examples/mops.toml`:
 
 ```toml
 [dependencies]
@@ -175,11 +194,11 @@ moc = "1.6.0"
 
 #### Step 3b — Audit repo hygiene files
 
-- **`.gitignore`**: If it does NOT exist, create it. Ensure it contains the following recommended entries. If it exists, add any missing entries:
+- **`.gitignore`** — create if missing; ensure it contains:
   ```text
   .mops/
   .icp/
-  mops.lock
+  mops.lock        # for libraries only — mops install reminds you
   node_modules/
   package.json
   package-lock.json
@@ -187,45 +206,40 @@ moc = "1.6.0"
   build/
   skills-lock.json
   .agents
-  mops.lock          # for libraries only — `mops install` prints
-                     # a reminder line for this case
   ```
-  *(Note: Personal files like `.idea`, `.vscode`, `.claude`, `.junie`, `.copilot`, `.tmp`, `*.swp`, and `.DS_Store` should NOT be added here; they should be managed in the developer's global ignore file, e.g., `~/.gitignore_global`.)*
-- **`package-lock.json`**: If it does NOT exist, do NOT introduce it.
-- **`package.json`**: If it exists, ensure the `license` field matches `mops.toml` `[package] license`. If it does NOT exist, do NOT introduce it (it may be created by `npm`, if so, do NOT commit it).
-- **`mops.toml` `files` field**: If `mops.toml` contains a `files` field under `[package]`, it acts as an allow-list for the `mops publish` command.
-    - **CRITICAL:** Do NOT modify the `files` field. Leave it exactly as it is. Trying to be smart about it can lead to including unintended files (like tests or benchmarks) or excluding necessary ones. Let the user edit this line manually if needed.
-    - **Check & Report:** Report to the user which files/patterns are currently included in the `files` field. Warn the user if something looks off (e.g., if an `examples/` directory exists but is NOT included).
-    - **Allowed Extensions:** Note that `mops publish` only supports the following extensions: `.mo`, `.did`, `.md`, `.toml`. If the `files` field includes other extensions (e.g., `.json`), warn the user that they might cause errors during publish.
+  Personal/editor files (`.idea`, `.vscode`, `.claude`, `.junie`,
+  `.copilot`, `.tmp`, `*.swp`, `.DS_Store`) belong in the developer's
+  global ignore, not here.
+- **`package-lock.json`** — if absent, don't introduce it.
+- **`package.json`** — if present, ensure its `license` matches
+  `mops.toml`. If absent, don't introduce it (and don't commit one
+  that `npm` may create).
+- **`mops.toml` `[package] files`** — hands off (see Key Conventions).
+  Report its contents to the user and warn if something looks off
+  (e.g., `examples/` exists but isn't listed). Only `.mo`, `.did`,
+  `.md`, `.toml` are supported by `mops publish` — warn if other
+  extensions appear.
 
-### Step 3c — Fix compiler warnings
+#### Step 3c — Fix compiler warnings
 
-Run the `fix-compiler-warnings` skill as a sub-task.
+Run the `fix-compiler-warnings` skill. Only act on warnings/errors
+the compiler actually emits — do not invent "improvements".
 
-**CRITICAL RULE:** Do NOT modify any code unless an explicit warning or error was produced by the compiler. Never apply "improvements" or "fixes" for perceived issues that the compiler does not actually complain about.
+Capture warnings for **Motoko canisters only** (ignore asset/Rust):
 
-1. Run the build check to capture warnings for **Motoko canisters** (ignore asset or Rust canisters). Choose the command based on the project type:
+```bash
+# DFX projects:
+dfx build --check 2>&1 | tee /tmp/dfx_build_output.txt
 
-   #### For DFX projects:
-   ```bash
-   dfx build --check 2>&1 | tee /tmp/dfx_build_output.txt
-   ```
+# MOPS packages:
+find src -type f -name "*.mo" -print0 | xargs -0 -n1 $(mops toolchain bin moc) --check $(mops sources) 2>&1 | tee /tmp/moc_check_output.txt
 
-   #### For MOPS packages:
-   ```bash
-   find src -type f -name "*.mo" -print0 | xargs -0 -n1 $(mops toolchain bin moc) --check $(mops sources) 2>&1 | tee /tmp/moc_check_output.txt
-   ```
+# ICP-CLI projects:
+icp build 2>&1 | tee /tmp/icp_build_output.txt
+```
 
-   #### For ICP-CLI projects:
-   ```bash
-   icp build 2>&1 | tee /tmp/icp_build_output.txt
-   ```
-
-2. If warnings/errors are found:
-    - Fix one type of error at a time.
-    - Re-run the check to verify the fix.
-    - Run `mops test` or `mops bench` if relevant to ensure no regressions.
-    - Repeat until all warnings are resolved.
+Fix one warning class at a time, re-run the check, and run
+`mops test` / `mops bench` if relevant to catch regressions.
 
 ### Step 4 — Run tests
 
@@ -233,17 +247,9 @@ Run the `fix-compiler-warnings` skill as a sub-task.
 mops test
 ```
 
-If tests fail:
-
-1. Read the error output carefully.
-2. Identify whether the failure is caused by an API change in an upgraded
-   dependency.
-3. Fix the source code to accommodate the new API.
-4. Re-run `mops test` until all tests pass.
-
-If a fix requires non-trivial changes (renamed functions, changed
-signatures, new semantics), note each change — you will need it for the
-CHANGELOG.
+If tests fail, identify whether an upgraded dependency changed its
+API, adapt the source, and re-run. Note any non-trivial changes
+(renames, signature changes) for the CHANGELOG.
 
 ### Step 5 — Run benchmarks
 
@@ -251,48 +257,39 @@ CHANGELOG.
 mops bench
 ```
 
-If benchmarks fail to compile or run:
-
-1. Apply the same kind of fixes as in Step 4.
-2. Re-run until benchmarks complete.
-
-If benchmarks show a significant regression, note it for the CHANGELOG
-but do not block the release unless the user explicitly asks.
+Apply Step 4-style fixes for compile/run failures.
 
 **Environmental failures vs code failures.** If `mops bench` errors
-*after* the `Deploying canisters...` line — typically with one of:
+**after** the `Deploying canisters...` line — typically:
 
 - `TrustError: Certificate verification error: "Invalid signature"`
 - `UND_ERR_SOCKET` / `fetch failed`
 - `Could not find the PocketIC binary`
 
-— the benchmarks compiled fine; you're looking at a `dfx` / `pocket-ic`
-/ `mops` agent compatibility issue, not anything the dependency bump
-introduced. Try, in order: kill stale `pocket-ic`/`dfx` processes;
-if `pocket-ic` is in `[toolchain]`, remove it so `mops bench` falls
-back to `dfx replica` (which is the preferred runtime anyway —
-`dfx` gives more accurate and more reliable numbers than
-`pocket-ic`); as a last resort, remove the `bench` job from CI and
-flag the issue to the user. Do NOT spend the release on chasing a
-moving target outside the package, and do NOT add `pocket-ic` to
-`mops.toml` to try to fix this.
+— benchmarks compiled fine; this is a `dfx`/`pocket-ic`/`mops` agent
+compatibility issue, not your bump. In order: kill stale
+`pocket-ic`/`dfx` processes; if `pocket-ic` is in `[toolchain]`,
+remove it so `mops bench` falls back to `dfx replica` (see Key
+Conventions); as a last resort, drop the `bench` job from CI and
+flag the user. Don't burn the release chasing this.
+
+Significant regressions: note for the CHANGELOG but don't block the
+release unless the user asks.
 
 ### Step 6 — Update the CHANGELOG
 
-Open (or create) `CHANGELOG.md`. Add a new section at the top for the
-upcoming version (you will finalize the version number in Step 10).
+Open or create `CHANGELOG.md` and add a section at the top for the
+upcoming version (number finalized in Step 10).
 
-Required bullet points:
+Include (only `[dependencies]` and `[requirements]` — see Key
+Conventions):
 
-- **Dependencies bumped** — list every dependency from the `[dependencies]` section that was upgraded and its old → new version.
-    - **CRITICAL:** Do NOT include `[toolchain]` or `[dev-dependencies]` bumps here; users only care about `[requirements]` or actual library dependencies. Even if you upgraded `[toolchain] moc` or a dev-dependency in Step 3, do NOT list it in the CHANGELOG.
-- **Breaking / notable changes** — if any source code had to change to
-  accommodate new APIs, describe what changed and why.
-- **Bug fixes** — if any bugs were discovered and fixed during the
-  process.
+- **Dependencies bumped** — list each upgraded `[dependencies]` entry,
+  old → new.
+- **Breaking / notable changes** — source-code adaptations.
+- **Bug fixes** — anything found and fixed during the run.
 
-Use the existing CHANGELOG style if one exists. If no CHANGELOG exists,
-create one with this format:
+If no CHANGELOG exists, create one:
 
 ```markdown
 # Changelog
@@ -303,54 +300,50 @@ create one with this format:
 
 - Updated `core` from `2.0.0` to `2.5.0`.
 - Bumped `bench` from `1.0.0` to `2.0.1`.
-- Updated `[requirements] moc` from `1.2.0` to `1.3.0` (only include if requirements were actually changed).
+- Updated `[requirements] moc` from `1.2.0` to `1.3.0` (only if changed).
 
 ### Fixed
 
 - Adapted `<function>` to new `<dep>` API (renamed `old` → `new`).
 ```
 
+Newest version on top. Match an existing CHANGELOG style if present.
+
 ### Step 7 — Review and improve doc strings
 
-**Note:** If you determined in Step 1 that the MOPS Documentation quality is **100%**, SKIP this step entirely. Otherwise, the goal of this step is to bring coverage up to **100%** — at the very least, find every public declaration that is missing a `///` doc string and add one.
+Skip if MOPS Documentation = 100% (see Key Conventions). Otherwise
+aim for 100%.
 
-Scan every `.mo` file under `src/` for public declarations. For each
-public `type`, `func`, `actor`, `actor class`, `let`, and `module`:
-1. Check that a `///` doc string exists directly above the declaration.
-2. Read the doc string from a first-time user's perspective:
-    - Is the purpose clear?
-    - Are argument types/units/constraints documented?
-    - Is trap / error behavior described?
-    - Are examples present for non-trivial functions?
-3. Improve or add doc strings where they are missing or unclear.
+Scan every `.mo` file under `src/` for public declarations
+(`type`, `func`, `actor`, `actor class`, `let`, `module`). For each:
 
-If a `motoko-doc-strings` skill is installed, follow its full checklist.
+1. Ensure a `///` doc string exists directly above.
+2. From a first-time user's perspective: is the purpose clear? Are
+   argument types/units/constraints documented? Trap/error behavior?
+   Examples for non-trivial functions?
+3. Improve or add as needed.
 
-### Step 8 — Review README and other Markdown files
+If the `motoko-doc-strings` skill is installed, follow its checklist.
 
-**Note:** If you determined in Step 1 that the MOPS Documentation quality is **100%**, SKIP this step entirely.
+### Step 8 — Review README and other Markdown
 
-Read `README.md` and every other `.md` file in the repository. For each:
+Skip if MOPS Documentation = 100%.
 
-1. Check factual accuracy (version numbers, API names, examples).
-2. Fix outdated information.
-3. Improve clarity, grammar, and completeness where possible.
-4. Add any new sections that would help users (e.g., new API surface
-   from upgraded deps).
-5. **Format Instruction:** Ensure `README.md` contains instructions on how to format the code (e.g., `npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'`). Add it to a "Development" or "Formatting" section if missing.
+For `README.md` and every other `.md`:
+
+1. Check factual accuracy (versions, API names, examples).
+2. Fix outdated information; improve clarity, grammar, completeness.
+3. Add sections for new API surface from upgraded deps.
+4. Ensure `README.md` documents the formatter command, e.g.
+   `npx -y prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'`
+   (add a "Development" or "Formatting" section if missing).
 
 ### Step 9 — Formatting
 
-Maintain a consistent code style by formatting the repository with Prettier and ensuring CI enforces this.
+#### 9a — Prettier configuration
 
-#### 9a — Check for Prettier Configuration
-
-Check if a `.prettierrc` file exists at the repo root.
-
-1. If it does NOT exist, create one with the following content.
-2. If it DOES exist but is "simple" (e.g., only contains `tabWidth`), replace it with the following content.
-
-Recommended `.prettierrc`:
+If `.prettierrc` is missing, or exists but is trivial (e.g. only
+`tabWidth`), write:
 
 ```json
 {
@@ -366,34 +359,28 @@ Recommended `.prettierrc`:
 
 #### 9b — Format the code
 
-`prettier`'s `--plugin` flag does not auto-resolve packages over the
-network. Install the plugin into a local `node_modules` first, then
-run prettier:
+`prettier`'s `--plugin` flag does not auto-resolve packages. Install
+the plugin locally first (a bare `npx -y prettier --plugin
+prettier-plugin-motoko ...` fails with `Cannot find package
+'prettier-plugin-motoko'` in a clean checkout):
 
 ```bash
 npm install --no-save prettier prettier-plugin-motoko
 npx prettier --plugin prettier-plugin-motoko --write '**/*.{mo,json,md}'
 ```
 
-A bare `npx -y prettier --plugin prettier-plugin-motoko ...` fails
-with `Cannot find package 'prettier-plugin-motoko' imported from
-.../noop.js` in a clean checkout. (Step 9c's CI workflow includes
-the `npm install` line for the same reason.)
+#### 9c — Verify or add CI workflow
 
-#### 9c — Verify or Add CI Workflow
+If the `motoko-github-ci-workflow` skill is installed, follow its
+instructions instead of this section.
 
-Search for GitHub Actions workflows (e.g., `.github/workflows/*.yml`).
-
-**If the `motoko-github-ci-workflow` skill is installed:**
-Follow its instructions to create or update a comprehensive CI workflow (usually `.github/workflows/ci.yml`) that includes tests, benchmarks, and formatting checks.
-
-**If the `motoko-github-ci-workflow` skill is NOT installed:**
-
-**CRITICAL — Do NOT modify `mops.toml` `[toolchain]`:** Always use whatever is already configured in `mops.toml`. Do **NOT** add `pocket-ic` to the `[toolchain]` section automatically — ever. We favour `dfx` over `pocket-ic` for `mops bench`: `dfx` produces more accurate and stable benchmark numbers (the difference can be substantial) and has proven significantly more reliable. Treat `[toolchain]` like the `files` field — leave it to the user to add `pocket-ic` manually only if they explicitly opt in.
-
-Create or update a consolidated GitHub Actions workflow (usually `.github/workflows/ci.yml`) that includes both code formatting checks and tests. If the package has **benchmarks**, the CI workflow MUST install the appropriate runtime before running `mops bench`. If `pocket-ic` is *already* in `[toolchain]`, install it using `mops toolchain bin pocket-ic`. Otherwise, install `dfx` (the default and preferred runtime) using `dfinity/setup-dfx@main`. See Pitfall #10 below for more details.
-
-If no CI exists, create `.github/workflows/ci.yml` with the following content:
+Otherwise create/update `.github/workflows/ci.yml` with tests +
+formatting. If the package has **benchmarks**, install the bench
+runtime **before** `mops bench` — per Key Conventions, default to
+`dfx` (`dfinity/setup-dfx@main`). Only if `pocket-ic` is **already**
+in `[toolchain]` should you instead use `mops toolchain bin
+pocket-ic`. `mops bench` starts and stops its own replica — never
+add a manual `dfx start --background` step; remove any you find.
 
 ```yaml
 name: CI
@@ -417,16 +404,12 @@ jobs:
       - run: |
           mops toolchain init
           mops install
-      - run: mops test   # Omit if no tests exist
-      # If the package has benchmarks (the default path), install dfx
-      # before `mops bench` (mops bench starts and stops the replica
-      # itself). Omit these two steps if there are no benchmarks.
-      # Alternative (only when `pocket-ic` is already in `mops.toml`
-      # [toolchain]): replace the dfx install step with
-      # `mops toolchain bin pocket-ic`.
+      - run: mops test   # Omit if no tests
+      # Benchmarks: install dfx (default) or pocket-ic if already in
+      # [toolchain]. Omit both steps if there are no benchmarks.
       - name: Install dfx
         uses: dfinity/setup-dfx@main
-      - run: mops bench  # Omit if no benchmarks exist
+      - run: mops bench
 
   fmt:
     name: Formatting Check
@@ -442,76 +425,57 @@ jobs:
           npx -y prettier --plugin prettier-plugin-motoko --check '**/*.{mo,json,md}'
 ```
 
-**CRITICAL:** Do NOT add a "Compiler Check" or `moc --check` step to the CI. While the agent MUST run this check locally during maintenance (Step 3c), it should NOT be part of the automated CI suite.
+Per Key Conventions, do **not** add a `moc --check` step to CI.
 
 ### Step 10 — Bump the version
 
-1. Open root `mops.toml` and increment the version. The default is the
-   **patch** segment — for example, `1.2.3` → `1.2.4`. Bump the **minor**
-segment instead (and reset patch to `0`) if any of the following are
-true:
-- `[requirements] moc` was raised — consumers' build environments now
-  need a newer compiler;
-- a `[dependencies]` package crossed a major version *and* this
-  package re-exports types or functions from it (the API surface
-  visible to consumers may have shifted);
-- source signatures or runtime semantics consumers could be relying
-  on changed.
+1. In root `mops.toml`, increment the version. Default = **patch**
+   (`1.2.3` → `1.2.4`). Bump **minor** (and reset patch) if any of:
+   - `[requirements] moc` was raised (consumers need a newer compiler);
+   - a `[dependencies]` package crossed a major and this package
+     re-exports types/functions from it;
+   - source signatures or runtime semantics consumers might rely on
+     changed.
 
-For `0.x.y` versions, shift the rule one segment to the right (a
-`[requirements]` bump is a minor; a major dep bump is a patch only if
-the impact is internal-only).
+   For `0.x.y`, shift the rule one segment right.
 
-```toml
-[package]
-name = "my-package"
-version = "1.2.4"   # was 1.2.3
-```
+   ```toml
+   [package]
+   name = "my-package"
+   version = "1.2.4"   # was 1.2.3
+   ```
 
-2. Update the CHANGELOG `Unreleased` header to the new version number:
+2. Update the CHANGELOG `Unreleased` header to the new number:
+   `## 1.2.4`.
 
-```markdown
-## 1.2.4
-```
+3. Update self-dependency comments in every nested `mops.toml`
+   (from Step 3a) to the new version:
 
-3. Update self-dependency comments in all nested `mops.toml` files (identified in Step 3a) to match the new version:
-
-```toml
-# In examples/mops.toml (or example/mops.toml):
-self-package-name = "../"
-# Replace with:
-# self-package-name = "1.2.4"
-```
+   ```toml
+   self-package-name = "../"
+   # Replace with:
+   # self-package-name = "1.2.4"
+   ```
 
 ### Step 11 — Commit and push
 
-**First, audit untracked files.** Run `git status` and inspect the
-`??` entries. Earlier sessions may have left scratch files in
-`bench/`, `test/`, or elsewhere (`*.debug.bench.mo`, `roxy.txt`,
-ad-hoc experiments). These should NOT be part of the release.
-Either delete them, add the patterns to `.gitignore`, or simply
-leave them unstaged — but never `git add -A` blindly. If you are
-unsure whether an untracked file belongs to the release, ask the
-user before staging it.
+**Audit untracked files first.** Compare `git status --short` against
+`/tmp/baseline.txt` (Step 0). Files that predate your work
+(`*.debug.bench.mo`, `roxy.txt`, ad-hoc experiments) are scratch —
+leave unstaged, `.gitignore` them, or delete. Never `git add -A`
+blindly. Ask the user if unsure.
 
-Stage all changes. **CRITICAL:** If `package.json` or `package-lock.json` did not exist at the start of the task, do NOT commit them if they were created during the process (e.g., by `npm install`).
+Stage changes. If `package.json` / `package-lock.json` didn't exist
+at the start but `npm install` created them, do **not** commit them.
 
 ```bash
-# Stage all changes to tracked files (including deletions)
 git add -u
-# Stage intentional new files created by the maintenance task
 git add .gitignore CHANGELOG.md .prettierrc .github/workflows/*.yml 2>/dev/null || true
-# Verify staged changes
 git status
-```
-
-Verify `git status` shows only intended staged files, then commit:
-
-```bash
 git commit -m "chore: bump dependencies and prepare v<NEW_VERSION>"
 ```
 
-Inform the user that the branch is ready for review and/or pushing:
+Inform the user:
 
 ```text
 Branch: chore/dependency-bump-YYYY-MM-DD
@@ -520,63 +484,18 @@ Ready for review. Run `git push -u origin HEAD` to push.
 
 ## Common Pitfalls
 
-1. **Don't blindly bump major versions.** If a dependency from `mops.one` has a new major version number (e.g., `1.x` to `2.x`), you **MUST** read the CHANGELOG of that package. The API likely changed. If the migration is non-trivial, flag it to the user.
-
-2. **`[requirements] moc` version.** While you shouldn't *blindly* bump it to the latest version, you must ensure it is at least the highest version required by any of your **regular dependencies** (EXCLUDING `core`). Audit these by looking at exactly the `.mops/<name>@<version>/mops.toml` file for each dependency in your `[dependencies]` section. For the `core` package specifically, you should test the package against a range of `moc` versions (from your initial calculated version up to the requirement found in `.mops/core@<version>/mops.toml`) to find the **minimum** version that works. **CRITICAL:** You MUST perform an exhaustive search by testing EVERY version in the range sequentially without skipping. Even if a dependency like `core` specifies a high version, it might still work with lower versions; your goal is to find the absolute minimum. If the package passes all checks with a version lower than what `core` requires, prefer the lower version to maximize compatibility for consumers. Revert and warn if no working version is found within the expected range.
-
+1. **Major-version dep bumps.** If a MOPS dep jumps a major
+   (`1.x` → `2.x`), read its CHANGELOG — the API likely changed. Flag
+   non-trivial migrations to the user.
+2. **`[requirements] moc` exhaustive search.** Test EVERY intermediate
+   version (Step 3); never skip. Prefer the lowest version that
+   passes all checks, even below what `core` declares, to maximize
+   consumer compatibility.
 3. **Lock file drift.** Always run `mops install` after editing
-   `mops.toml` so the lock file stays in sync. Never commit a hand-edited
-   lock file.
-
-4. **Missing recommended entries in `.gitignore`.** Always ensure that
-   `.gitignore` is present and contains the recommended entries (see Step 3b),
-   especially `node_modules/`, `package.json`, `package-lock.json`, `.mops/`, `.icp/`, and `mops.lock`.
-
-5. **Mismanaging the `mops.toml` `files` field.** Never attempt to automatically modify the `files` field in `mops.toml`. Report its contents to the user and warn about missing patterns or unsupported extensions (`.mo`, `.did`, `.md`, `.toml` only).
-
-6. **CHANGELOG ordering.** Newest version goes at the top. Don't append
-   to the bottom.
-
-7. **Respect the documentation quality threshold.** The target is **100%** documentation coverage. If the MOPS documentation quality is already **100%**, do NOT perform a full doc-string review or README update — this avoids unnecessary noise. If quality is below 100% (or the package is not yet published), perform a full scan and, at a minimum, find every public declaration missing a `///` doc string and fill it in so the package reaches 100%.
-
-8. **Adding Compiler Checks to CI.** Do not include `moc --check` in the CI configuration. This check should only be performed by the agent during the maintenance process to fix warnings, as different CI environments might have different compiler versions that could cause unexpected failures for the end user.
-
-9. **Including toolchain or dev-dependency bumps in CHANGELOG.** Never include `[toolchain]` or `[dev-dependencies]` bumps in the CHANGELOG. They clutter the history with internal development details that do not affect the package's consumers. Only include `[requirements]` or `[dependencies]` if they were explicitly upgraded.
-
-10. **`mops bench` runtime in CI: install `dfx` by default; never auto-add `pocket-ic` to `mops.toml`.** We favour `dfx` over `pocket-ic` for benchmarks: `dfx` produces more accurate, stable numbers (the difference can be substantial) and has proven significantly more reliable. Never add `pocket-ic` to `mops.toml` automatically (see Step 9c). If the package has **benchmarks**, add a `dfx` installation step to the CI workflow **before** the `mops bench` step. Use the official installer — there is no need to start the replica manually; `mops bench` starts (and stops) it itself:
-
-    ```yaml
-          - name: Install dfx
-            uses: dfinity/setup-dfx@main
-          - run: mops bench
-    ```
-
-    Place this **only** in the job that runs `mops bench`. If `pocket-ic` is **already** present in `[toolchain]`, you should instead install pocket-ic (`mops toolchain bin pocket-ic`) before running `mops bench`. In either case, `mops bench` will automatically use the correct replica. It is acceptable to leave an existing `dfx` installation step in `ci.yml` even if `pocket-ic` is currently in the toolchain.
-
-    **Remove any redundant `dfx start` step.** If you find an existing workflow that runs `dfx start --background --clean` (or similar) before `mops bench`, delete that step. `mops bench` starts and stops its own local replica, so a manual `dfx start` step is unnecessary and should be removed:
-
-    ```yaml
-          # REMOVE this step if present — mops bench manages the replica itself:
-          - name: Start dfx
-            run: dfx start --background --clean
-    ```
-
-11. **`mops add` rewrites `mops.toml`.** Running `mops add <package>`
-    regenerates the file and can silently revert `[requirements] moc`
-    to its default (typically `"1.0.0"`). After every `mops add`, diff
-    `mops.toml` and restore `[requirements] moc` to the value the
-    maintenance run requires.
-
-12. **Pre-existing scratch files.** Snapshot the untracked-file list
-    *before* you start making changes (`git status --short > /tmp/baseline.txt`)
-    so you can tell at Step 11 which untracked files predate your
-    work. Files that were already there are usually scratch and
-    should stay unstaged; files you introduced should be reviewed
-    individually.
+   `mops.toml`. Never hand-edit `mops.lock`.
+4. **CHANGELOG ordering.** Newest at the top.
 
 ## Verify It Works
-
-After completing all steps, run the validation suite:
 
 ```bash
 mops install
@@ -584,4 +503,4 @@ mops test
 mops bench
 ```
 
-All commands must succeed with no errors.
+All must succeed with no errors.

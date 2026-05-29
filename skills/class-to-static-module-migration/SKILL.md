@@ -86,6 +86,7 @@ For each `class Foo<T>(initArgs)` in the package:
 
    - Use `var` on fields that the methods mutate; leave the rest immutable.
    - All field types must themselves be stable (no functions, no objects with methods). If a field currently holds another class instance, migrate that class first.
+   - **Do NOT lift functions (closures) into the record.** If the original class stored a function (e.g. `compare`, `hash`), see Rule 4 for how to handle it.
 
 3. **Replace the constructor with a `new` (or `empty` / `fromX`) function** that returns the record:
 
@@ -114,6 +115,7 @@ For each `class Foo<T>(initArgs)` in the package:
    - Re-introduce type parameters (`<T>`, `<K, V>`, ...) on each function, because the module is no longer generic over them.
    - Replace every reference to a former field `foo` with `self.foo`.
    - Replace calls to other methods (`bar(x)`) with `self.bar(x)` or `Foo.bar(self, x)` — both compile, prefer dot-notation for readability.
+   - **Passing functional arguments:** If the method needs a function that was previously stored in the class (e.g. `compare`), add it as an extra argument to the function signature. By convention, place these functional arguments *after* the existing arguments.
 
 5. **Delete `share` / `unshare`.** The record *is* the shareable representation. If the old `SharedData<T>` type was re-exported, keep it as `public type SharedData<T> = Foo<T>` for one release to ease migration, then remove it.
 
@@ -204,6 +206,10 @@ Rules:
 9. **Field name vs. factory name collision.** If the original class had a field named `new` (or any other name that you also want to use as a factory function — `empty`, `clone`, ...), the field and the factory will collide inside the module: `self.new` is the field, but `Foo.new<X>()` is the factory. Both compile because they live in different namespaces (record field vs. module function), but it is easy to confuse them while reading the migrated code. When you spot such a collision, either (a) rename the field to something that does not look like a factory (e.g. `current`, `buf`), or (b) leave the names as-is but add a short comment at the type definition pointing out the difference. Do *not* rename the factory — keep `new` / `empty` / `fromX` to match `mo:core`.
 
 10. **Sibling nested modules call each other via dot-notation on the record, not via the module name.** When file `Wrappers.mo` declares both `Foo` and `Bar` as nested `public module`s and a `Foo` value has a field of type `Bar.Bar<X>`, inside `Foo`'s functions you should write `self.bar.push(x)` (dot-notation on the record) rather than `Bar.push(self.bar, x)`. Both compile, but dot-notation keeps the migrated body visually identical to the original class body and avoids forcing the reader to remember which sibling module owns which method.
+
+11. **Functions in records break stability.** If the original class stored a function (like a `compare` or `hash` closure), do NOT put it in the new record type. Instead, pass it as an additional argument to every module function that needs it. By convention, add these extra functional arguments *after* the original method's arguments.
+
+12. **Structural uniqueness for dot-notation.** If you have multiple similar modules (e.g., a generic `Map<K, V>` and an optimized `MapBlob`), ensure their record types are structurally distinct. If they are identical, the compiler may fail to resolve dot-notation because it cannot distinguish between the two types. Keep unique fields (like an `empty` sentinel) even if they aren't strictly needed for every operation, to maintain this distinction.
 
 ## Minimal Example (end-to-end)
 
@@ -355,7 +361,9 @@ Whichever you choose, apply it consistently within a file. Do *not* mix `SWB.Foo
 ## Verification Checklist
 
 - [ ] The package exports a `module`, not a `class`.
-- [ ] The main type is a record with only stable field types.
+- [ ] The main type is a record with only stable field types (no functions/closures).
+- [ ] If multiple similar modules exist, their record types are structurally unique (to avoid dot-notation ambiguity).
+- [ ] Methods that require functions (like `compare`) accept them as arguments after `self` and existing arguments.
 - [ ] Every operation function's first parameter is literally named `self`.
 - [ ] Factory functions (`new`, `empty`, `fromX`) do NOT take `self`.
 - [ ] All generic parameters are re-introduced on each function.

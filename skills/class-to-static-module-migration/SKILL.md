@@ -14,6 +14,7 @@ In the static style:
 - The package is a `module`, not a `class`.
 - The data type is a **plain record** exposed as a `type` alias (no methods, no private state). This makes it directly **stable** — no `share`/`unshare` and no `preupgrade`/`postupgrade` plumbing needed.
 - Operations are top-level `func`s whose first parameter is named `self`. Callers use them via **dot-notation** (`xs.push(e)`), so the call sites look identical to the old class style.
+- For **collection-like** types (queue, stack, list, map, set, ...), the public surface (function names, signatures, conventions) must mirror the corresponding module in [`mo:core`](https://github.com/caffeinelabs/motoko-core/tree/main/src) — see the "Collection conventions" section below.
 
 This is the same pattern as `mo:core`'s `List`: see [`motoko-dot-notation-migration`](../dot-notation-migration/SKILL.md) for how dot-notation works, and `motoko-general-style-guidelines` (sections "Classes" and "Modules") for the underlying rationale ("Use modules for 'static' classes").
 
@@ -28,11 +29,12 @@ This is the same pattern as `mo:core`'s `List`: see [`motoko-dot-notation-migrat
 A Motoko `class` produces an object with methods. Objects with methods are **not stable** — they cannot be stored in `stable var` directly. Authors usually work around this with:
 
 ```motoko
-public class ArrayWrapper<T>() {
-  var arr : [T] = [];
-  public func push(e : T) { arr := Array.append(arr, [e]) };
-  public func share() : SharedData<T> = { arr };
-  public func unshare(d : SharedData<T>) { arr := d.arr };
+public class Counter(initial : Nat) {
+  var value : Nat = initial;
+  public func increment() { value += 1 };
+  public func read() : Nat = value;
+  public func share() : SharedData = { value };
+  public func unshare(d : SharedData) { value := d.value };
 };
 
 ```
@@ -41,10 +43,10 @@ public class ArrayWrapper<T>() {
 
 ```motoko
 actor {
-  stable var data : ArrayWrapper.SharedData<Nat> = { arr = [] };
-  let wrapper = ArrayWrapper.ArrayWrapper<Nat>();
-  system func preupgrade() { data := wrapper.share() };
-  system func postupgrade() { wrapper.unshare(data) };
+  stable var data : Counter.SharedData = { value = 0 };
+  let counter = Counter.Counter(0);
+  system func preupgrade() { data := counter.share() };
+  system func postupgrade() { counter.unshare(data) };
 };
 
 ```
@@ -52,24 +54,25 @@ actor {
 In the static module style the type *itself* is a stable record, so all that ceremony disappears:
 
 ```motoko
-module ArrayWrapper {
-  public type ArrayWrapper<T> = { var arr : [T] };
-  public func new<T>() : ArrayWrapper<T> = { var arr = [] };
-  public func push<T>(self : ArrayWrapper<T>, e : T) {
-    self.arr := Array.append(self.arr, [e]);
-  };
+module Counter {
+  public type Counter = { var value : Nat };
+  public func new(initial : Nat) : Counter = { var value = initial };
+  public func increment(self : Counter) { self.value += 1 };
+  public func read(self : Counter) : Nat = self.value;
 };
 
 ```
 
 ```motoko
 actor {
-  stable var arr : ArrayWrapper.ArrayWrapper<Nat> = ArrayWrapper.new();
+  stable var counter : Counter.Counter = Counter.new(0);
   // call sites look exactly like the class version thanks to dot-notation:
-  arr.push(1);
+  counter.increment();
 };
 
 ```
+
+Note that `Counter` is **not** a collection-like type (it isn't enumerated or indexable), so its factory is named `new(initial)` — taking a meaningful initialization argument — rather than `empty()`. For collection-like types (queue, stack, list, map, set, ...), use `empty` instead; see the "Collection conventions" section below.
 
 ## Conversion Rules
 
@@ -115,7 +118,7 @@ For each `class Foo<T>(initArgs)` in the package:
    - Re-introduce type parameters (`<T>`, `<K, V>`, ...) on each function, because the module is no longer generic over them.
    - Replace every reference to a former field `foo` with `self.foo`.
    - Replace calls to other methods (`bar(x)`) with `self.bar(x)` or `Foo.bar(self, x)` — both compile, prefer dot-notation for readability.
-   - **Passing functional arguments:** If the method needs a function that was previously stored in the class (e.g. `compare`), add it as an extra argument to the function signature. By convention, place these functional arguments *after* the existing arguments.
+   - **Passing functional arguments:** If the method needs a function that was previously stored in the class (e.g. `compare`, `equal`, `hash`, `toText`), add it as an extra argument to the function signature. These arguments must be marked as **implicit** to match `mo:core` (see the "Collection conventions" section). By convention, place implicit arguments *immediately after* `self` and before the operation's own value arguments.
 
 5. **Delete `share` / `unshare`.** The record *is* the shareable representation. If the old `SharedData<T>` type was re-exported, keep it as `public type SharedData<T> = Foo<T>` for one release to ease migration, then remove it.
 
@@ -199,7 +202,7 @@ Rules:
 
 6. **Don't expose factory functions as `self`-methods.** `new`, `empty`, `fromArray`, ... do NOT take `self` and must NOT be called with dot-notation. This matches `List.empty()`, `List.fromArray(xs)` in `mo:core`.
 
-7. **Equality / comparison helpers.** If the class implemented structural equality via a method, expose it as `equal<T>(self : Foo<T>, other : Foo<T>, eq : (T, T) -> Bool) : Bool` so callers write `a.equal(b, Nat.equal)`.
+7. **Equality / comparison helpers.** If the class implemented structural equality via a method, expose it as `equal<T>(self : Foo<T>, other : Foo<T>, equal : (implicit : (T, T) -> Bool)) : Bool` so callers write `a.equal(b, Nat.equal)`.
 
 8. **Iteration.** Provide `values`, `keys`, `entries`, ... as `func values<T>(self : Foo<T>) : Iter.Iter<T>` so `for (x in xs.values()) { ... }` works the same way as on `mo:core` collections.
 
@@ -211,28 +214,107 @@ Rules:
 
 12. **Structural uniqueness for dot-notation.** If you have multiple similar modules (e.g., a generic `Map<K, V>` and an optimized `MapBlob`), ensure their record types are structurally distinct. If they are identical, the compiler may fail to resolve dot-notation because it cannot distinguish between the two types. Keep unique fields (like an `empty` sentinel) even if they aren't strictly needed for every operation, to maintain this distinction.
 
+## Collection conventions (match `mo:core`)
+
+When the migrated type is a **collection-like** entity — queue, stack, list, map, set, buffer, ring-buffer, priority queue, or anything else that is enumerated or indexable — its public surface MUST follow the same naming and signature conventions as the corresponding module in [`mo:core`](https://github.com/caffeinelabs/motoko-core/tree/main/src) (`List`, `Map`, `Set`, `Queue`, `Stack`, `PriorityQueue`, ...). When in doubt, open the matching `mo:core` module and copy its function names and signatures verbatim.
+
+### 1. Factory: `empty`, not `new`
+
+The canonical zero-argument factory for a collection is `empty`, **not** `new`:
+
+```motoko
+public func empty<T>() : Foo<T> = { var field1 = ...; ... };
+```
+
+Call sites become `Foo.empty<Nat>()`, matching `List.empty<Nat>()`, `Map.empty<K, V>()`, `Set.empty<T>()`, `Queue.empty<T>()`. Use `new` only when the original constructor takes meaningful, non-default initialization arguments that have no natural `mo:core` analogue.
+
+Alongside `empty`, expose the other standard factories whenever they make sense for the type: `singleton(x)`, `fromIter(it)`, `fromArray(xs)`, `fromVarArray(xs)`, `repeat(x, n)`, `tabulate(n, f)`.
+
+### 2. Indexed access: define both `get` and `at`
+
+For any collection that supports positional / keyed access, define **both** of the following functions, mirroring `mo:core/List`:
+
+```motoko
+/// Returns the element at `index`. Returns `null` when out of bounds.
+public func get<T>(self : Foo<T>, index : Nat) : ?T { ... };
+
+/// Returns the element at `index`. Traps when out of bounds.
+public func at<T>(self : Foo<T>, index : Nat) : T { ... };
+```
+
+Rules:
+
+- `get` returns `?T` and never traps — it returns `null` when the index is out of bounds (or the key is missing, for maps).
+- `at` returns `T` and traps on out-of-bounds.
+- If the original class had a method called `get(index) : T` (trapping), that method becomes `at` in the migrated module, and a new `get : ?T` is added on top. Do NOT keep the trapping version under the name `get` — that would silently contradict the `mo:core` contract that `get` is total.
+- For maps, the same shape applies on keys: `get<K, V>(self, key) : ?V` (total) is the canonical lookup; a trapping variant, when needed, is named `at`.
+- Update all in-package call sites that previously relied on the trapping `get` to either call `at` (when they want the trap) or to handle the `?T` from `get`.
+
+### 3. Implicit arguments for `compare`, `equal`, `hash`, `toText`, ...
+
+When a collection function needs a per-element function such as a comparator, equality predicate, hasher, or text-formatter — i.e. a function that is conceptually a property *of the element type*, not of the call site — declare that argument as **implicit**, exactly the way `mo:core/List` does:
+
+```motoko
+public func contains<T>(self : Foo<T>, equal : (implicit : (T, T) -> Bool), element : T) : Bool { ... };
+public func indexOf<T>(self : Foo<T>, equal : (implicit : (T, T) -> Bool), element : T) : ?Nat { ... };
+public func sort<T>(self : Foo<T>, compare : (implicit : (T, T) -> Order.Order)) : Foo<T> { ... };
+public func max<T>(self : Foo<T>, compare : (implicit : (T, T) -> Order.Order)) : ?T { ... };
+public func equal<T>(self : Foo<T>, other : Foo<T>, equal : (implicit : (T, T) -> Bool)) : Bool { ... };
+public func compare<T>(self : Foo<T>, other : Foo<T>, compare : (implicit : (T, T) -> Order.Order)) : Order.Order { ... };
+public func toText<T>(self : Foo<T>, toText : (implicit : T -> Text)) : Text { ... };
+```
+
+Rules:
+
+- The syntax is `name : (implicit : <FunctionType>)`. The keyword `implicit` is part of the argument's type, not of the parameter name. The conventional parameter names match `mo:core`: `equal`, `compare`, `hash`, `toText`.
+- Place implicit arguments **immediately after `self`**, before any value arguments (e.g. `contains(self, equal, element)`, not `contains(self, element, equal)`). This matches `mo:core/List` precisely and is required for call-site uniformity.
+- Apply this to *any* function whose extra functional argument is element-typed: `contains`, `indexOf`, `lastIndexOf`, `nextIndexOf`, `prevIndexOf`, `deduplicate`, `sort`, `sortInPlace`, `isSorted`, `binarySearch`, `max`, `min`, `equal`, `compare`, `toText`, and the equivalents in `Map` / `Set` / `Queue` / `PriorityQueue`.
+- Do **not** mark plain operation callbacks (e.g. `predicate : T -> Bool` for `filter` / `find` / `all` / `any`, `f : T -> R` for `map`, `combine` for `foldLeft` / `foldRight`) as implicit. Implicit is reserved for arguments that behave as a type-class instance for the element type. The rule of thumb: if `mo:core/List` marks it implicit, mark it implicit; otherwise leave it as a plain argument.
+- Implicit arguments only make sense for collection-like modules. For non-collection migrated classes, keep functional arguments as plain (non-implicit) parameters.
+
+### 4. Other collection functions to expose
+
+When the original class has a method that maps to one of these `mo:core` names, **rename to the `mo:core` name** during migration (do not invent new names):
+
+- Construction: `empty`, `singleton`, `repeat`, `tabulate`, `fromIter`, `fromArray`, `fromVarArray`, `clone`.
+- Size / emptiness: `size`, `isEmpty`, `clear`.
+- Insertion: `add` (push to end), `put(self, index, value)` (overwrite at index), `addAll(self, iter)`, `append(self, other)`, `addRepeat(self, value, count)`.
+- Removal: `removeLast`, `truncate(self, newSize)`, `retain(self, predicate)`, `filter` (returns new), `filterMap`.
+- Access: `get` (`?T`, total), `at` (`T`, trapping), `first`, `last`.
+- Iteration: `values`, `keys`, `entries`, `enumerate`, `reverseValues`, `reverseEnumerate`, `forEach`, `forEachEntry`, `range(self, fromInclusive, toExclusive)`.
+- Search / order: `contains`, `indexOf`, `lastIndexOf`, `find`, `findIndex`, `findLastIndex`, `all`, `any`, `binarySearch`, `max`, `min`, `sort`, `sortInPlace`, `isSorted`, `deduplicate`.
+- Conversion: `toArray`, `toVarArray`, `toText`, `sliceToArray`, `sliceToVarArray`, `toPure` / `fromPure` (when a purely-functional twin module exists).
+- Folds / transforms: `map`, `mapInPlace`, `mapEntries`, `mapResult`, `flatten`, `join`, `flatMap`, `foldLeft`, `foldRight`, `reverse`, `reverseInPlace`.
+- Comparison: `equal`, `compare`.
+
+If the original class had a method whose name does *not* appear above but whose semantics match one of these (e.g. `length` → `size`, `count` → `size`, `push` → `add`, `pop` → `removeLast`, `enqueue` → `pushBack`, `set(i, v)` → `put(self, i, v)`), rename it to the `mo:core` name during the migration.
+
+13. **Don't trap silently from `get`.** After migration, `get` MUST return `?T` (or `?V` for maps) and MUST NOT trap on out-of-bounds / missing keys. If the original class had a trapping `get`, the trapping version becomes `at` and a new total `get : ?T` is added. Mixing these — keeping a trapping function under the name `get` — silently breaks the `mo:core` contract and confuses downstream code that already expects `get : ?T`.
+
+14. **Conventional parameter names for implicit arguments.** Always name them `equal`, `compare`, `hash`, `toText` to match `mo:core` — even when this shadows a same-named function in the surrounding module (Motoko's scoping handles it). Renaming to `eq`, `cmp`, etc. divergence from `mo:core` and breaks the muscle-memory of call sites that came from `mo:core` collections.
+
 ## Minimal Example (end-to-end)
+
+The example below uses a `Counter` — deliberately a **non-collection** type — to keep the focus on the class→module mechanics and to illustrate that the factory is named `new(initArgs)` when the constructor takes meaningful arguments (here, the initial value). For collection-like types, the factory would instead be `empty()` plus the other `mo:core` factories — see the "Collection conventions" section.
 
 ### Before — class style
 
 ```motoko
-// src/ArrayWrapper.mo
-import Array "mo:base/Array";
-
+// src/Counter.mo
 module {
-  public type SharedData<T> = { arr : [T] };
+  public type SharedData = { value : Nat };
 
-  public class ArrayWrapper<T>() {
-    var arr : [T] = [];
+  public class Counter(initial : Nat) {
+    var value : Nat = initial;
 
-    public func push(e : T) {
-      arr := Array.append(arr, [e]);
-    };
+    public func increment() { value += 1 };
 
-    public func size() : Nat = arr.size();
+    public func add(n : Nat) { value += n };
 
-    public func share() : SharedData<T> = { arr };
-    public func unshare(d : SharedData<T>) { arr := d.arr };
+    public func read() : Nat = value;
+
+    public func share() : SharedData = { value };
+    public func unshare(d : SharedData) { value := d.value };
   };
 };
 
@@ -240,17 +322,18 @@ module {
 
 ```motoko
 // main.mo
-import ArrayWrapper "ArrayWrapper";
+import Counter "Counter";
 
 actor {
-  stable var data : ArrayWrapper.SharedData<Nat> = { arr = [] };
-  let wrapper = ArrayWrapper.ArrayWrapper<Nat>();
+  stable var data : Counter.SharedData = { value = 0 };
+  let counter = Counter.Counter(0);
 
-  system func preupgrade() { data := wrapper.share() };
-  system func postupgrade() { wrapper.unshare(data) };
+  system func preupgrade() { data := counter.share() };
+  system func postupgrade() { counter.unshare(data) };
 
-  public func add(n : Nat) : async () { wrapper.push(n) };
-  public query func count() : async Nat { wrapper.size() };
+  public func bump() : async () { counter.increment() };
+  public func bumpBy(n : Nat) : async () { counter.add(n) };
+  public query func current() : async Nat { counter.read() };
 };
 
 ```
@@ -258,38 +341,37 @@ actor {
 ### After — static module style
 
 ```motoko
-// src/ArrayWrapper.mo
-import Array "mo:base/Array";
-
+// src/Counter.mo
 module {
-  public type ArrayWrapper<T> = { var arr : [T] };
+  public type Counter = { var value : Nat };
 
-  public func new<T>() : ArrayWrapper<T> = { var arr = [] };
+  public func new(initial : Nat) : Counter = { var value = initial };
 
-  public func push<T>(self : ArrayWrapper<T>, e : T) {
-    self.arr := Array.append(self.arr, [e]);
-  };
+  public func increment(self : Counter) { self.value += 1 };
 
-  public func size<T>(self : ArrayWrapper<T>) : Nat = self.arr.size();
+  public func add(self : Counter, n : Nat) { self.value += n };
+
+  public func read(self : Counter) : Nat = self.value;
 };
 
 ```
 
 ```motoko
 // main.mo
-import ArrayWrapper "ArrayWrapper";
+import Counter "Counter";
 
 actor {
-  stable var wrapper : ArrayWrapper.ArrayWrapper<Nat> = ArrayWrapper.new();
+  stable var counter : Counter.Counter = Counter.new(0);
 
   // Call sites are identical to the class version, thanks to dot-notation:
-  public func add(n : Nat) : async () { wrapper.push(n) };
-  public query func count() : async Nat { wrapper.size() };
+  public func bump() : async () { counter.increment() };
+  public func bumpBy(n : Nat) : async () { counter.add(n) };
+  public query func current() : async Nat { counter.read() };
 };
 
 ```
 
-What disappeared: `class`, `share`, `unshare`, the `SharedData` type, the auxiliary `let wrapper = ...`, `preupgrade`, and `postupgrade`.
+What disappeared: `class`, `share`, `unshare`, the `SharedData` type, the auxiliary `let counter = ...`, `preupgrade`, and `postupgrade`. The factory is `new(initial)` because `Counter` is not a collection-like type and its constructor takes a meaningful initialization argument; for a queue/list/map you would write `empty()` instead.
 
 ## Step-by-Step Procedure
 
@@ -364,6 +446,10 @@ Whichever you choose, apply it consistently within a file. Do *not* mix `SWB.Foo
 - [ ] The main type is a record with only stable field types (no functions/closures).
 - [ ] If multiple similar modules exist, their record types are structurally unique (to avoid dot-notation ambiguity).
 - [ ] Methods that require functions (like `compare`) accept them as arguments after `self` and existing arguments.
+- [ ] For collection-like types, the zero-argument factory is named `empty` (not `new`), matching `mo:core`.
+- [ ] For collection-like types, indexed access is exposed as **both** `get(self, index) : ?T` (total, returns `null` out of bounds) and `at(self, index) : T` (trapping); no function named `get` traps on missing index/key.
+- [ ] For generic types, element-typed functional arguments (`equal`, `compare`, `hash`, `toText`) are declared as **implicit** (`name : (implicit : ...)`) and placed immediately after `self`, matching `mo:core/List`.
+- [ ] For collection-like types, public function names match the corresponding `mo:core` module (no `length`/`count`/`push`/`pop`/`set` aliases left behind).
 - [ ] Every operation function's first parameter is literally named `self`.
 - [ ] Factory functions (`new`, `empty`, `fromX`) do NOT take `self`.
 - [ ] All generic parameters are re-introduced on each function.

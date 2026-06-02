@@ -122,6 +122,37 @@ When scanning for operators or commas, skip over string literals (`"..."`) inclu
 
 `42.toText()` and `0xFF.toNat()` are valid Motoko — numeric literals can receive dot notation directly. No parens needed.
 
+### 7. Implicit `compare` / `equal` Arguments Also Need the Type's Module Imported
+
+Recent `core`/`moc` make the comparator an **implicit** parameter, declared as `compare : (implicit : (K, K) -> Order.Order)` (likewise `equal`). At a call site you then omit it: `map.get(key)`, `enum.add(key)`, `list.contains(x)`. For the compiler to *resolve* the implicit argument, the canonical comparison must be in scope — i.e. the key type's module must be imported (`import Text`, `import Blob`, `import Principal`, ...), exactly like pitfall #4 but for a different reason.
+
+- Missing import → `type error [M0230], Cannot determine implicit argument 'compare' of type ...`.
+- Note: only *resolving* an implicit at a call site needs this. A library that merely *declares* `(implicit : ...)` and forwards it explicitly (`f(self, compare, key)`) does not — and that declaration syntax compiles even on older `moc` (verified back to `moc 1.0.0`). The `--implicit-derivation-depth` flag that controls recursive resolution only appears in `moc 1.8.x`.
+
+### 8. Overlapping Resolution Between Two In-Scope Modules — `M0224`
+
+Dot notation resolves `x.f(...)` by finding a function `f` (with matching first-parameter type) among the modules **in scope**. If two imported modules both define `f` whose first parameter is *structurally identical* to `x`'s type, resolution is ambiguous:
+
+```
+type error [M0224], overlapping resolution for `f` in scope from these modules: A, B
+```
+
+This bites when a package ships a generic collection module and a hand-specialized variant whose record types coincide for a concrete key type — e.g. a generic `Coll<Blob>` and a `BlobColl` with the same fields. Two fixes:
+- Import only one of the modules in a given file (the typical user pattern), or
+- Keep the two record types structurally distinct (e.g. an extra field) so the receiver matches exactly one.
+
+Motoko is structural: identical field sets ⇒ same type ⇒ ambiguity; any structural difference ⇒ unique resolution.
+
+### 9. String Literals Don't Coerce Through a Generic Parameter — `M0096`
+
+A `Text`/`Blob` literal coerces to the expected type only when that type is statically known at the literal. Passed to a *generic* function whose type variable later resolves to `Blob`, a `"..."` literal is inferred as `Text` and fails:
+
+```
+type error [M0096], expression of type Text cannot produce expected type Blob
+```
+
+So a `"abc"` literal works on a `Blob`-specialized `add(self, key : Blob)` but **not** on a generic `add<K>(self, key : K)` instantiated at `K = Blob`. Bind it first (`let k : Blob = "abc"`) or use a concrete-typed value. Keep this in mind when writing doc-string/README examples for generic modules — prefer a key type whose literals are native (e.g. `Text`).
+
 ## Function Catalog (core 2.2.0)
 
 ### Zero-Extra-Arg Functions (self only)

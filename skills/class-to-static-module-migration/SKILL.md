@@ -214,6 +214,12 @@ Rules:
 
 12. **Structural uniqueness for dot-notation.** If you have multiple similar modules (e.g., a generic `Map<K, V>` and an optimized `MapBlob`), ensure their record types are structurally distinct. If they are identical, the compiler may fail to resolve dot-notation because it cannot distinguish between the two types. Keep unique fields (like an `empty` sentinel) even if they aren't strictly needed for every operation, to maintain this distinction.
 
+13. **Dot-notation limitation with `async` and `async*` functions on custom record types.**
+   Motoko's compiler (as of v1.x) has a known limitation: it does not support/resolve dot notation (`self.func(...)`) for functions returning `async` or `async*` when called on plain record types (even when the type's module is correctly imported and in scope). Attempting to do so will result in compilation errors. For such asynchronous functions, you MUST fall back to explicit module-level notation (e.g., `Module.func(self, ...)`). Synchronous functions can continue to use dot notation perfectly.
+
+14. **Dot-notation supported function calls can be left untouched during migration.**
+   If a consumer codebase already calls class methods using dot notation (e.g., `obj.method(...)`), you do not need to rewrite these to module-level calls (`Module.method(obj, ...)`) during the static module migration. The compiler will natively resolve these dot-notation calls to the static module once the class is migrated to a module-based record, provided the module of the record is imported and in scope (and the function is synchronous).
+
 ## Collection conventions (match `mo:core`)
 
 When the migrated type is a **collection-like** entity — queue, stack, list, map, set, buffer, ring-buffer, priority queue, or anything else that is enumerated or indexable — its public surface MUST follow the same naming and signature conventions as the corresponding module in [`mo:core`](https://github.com/caffeinelabs/motoko-core/tree/main/src) (`List`, `Map`, `Set`, `Queue`, `Stack`, `PriorityQueue`, ...). When in doubt, open the matching `mo:core` module and copy its function names and signatures verbatim.

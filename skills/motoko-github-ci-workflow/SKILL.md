@@ -54,7 +54,7 @@ Before adding the CI, **read** `mops.toml` but do **NOT** modify the `[toolchain
 Determine which CI strategy to use based on the current `[toolchain]` content:
 
 - **`pocket-ic` is absent AND the package has benchmarks (the default and recommended case)**: Install `dfx` in CI and run `mops bench` against a local replica — this is the preferred path. See Step 2 template and Pitfall #2 for the exact snippet. Do **NOT** add `pocket-ic` to `mops.toml` to "fix" the missing runtime.
-- **`pocket-ic` is already present in `[toolchain]`**: The user has explicitly opted in. You may keep using `pocket-ic` by installing it in CI via `mops toolchain bin pocket-ic` and invoking `mops bench --replica pocket-ic` (the explicit flag makes the choice obvious in the workflow). Only prefer this path over `dfx` if the user has specifically asked for it or if CI time savings clearly outweigh the loss of accuracy and reliability; otherwise still install `dfx` and run plain `mops bench`.
+- **`pocket-ic` is already present in `[toolchain]`**: The user has explicitly opted in. You may keep using `pocket-ic` by installing it in CI via `mops toolchain bin pocket-ic` and invoking `mops bench`. Only prefer this path over `dfx` if the user has specifically asked for it or if CI time savings clearly outweigh the loss of accuracy and reliability; otherwise still install `dfx`.
 - **`pocket-ic` is absent AND there are no benchmarks**: Nothing to do — `mops test` does not need `pocket-ic` and no benchmark runtime is required.
 
 Also, check if `mops.toml` contains a `files` field under `[package]`. If it does, do NOT modify it. Trying to be smart about the `files` field can lead to unintended side effects. Instead, report its current configuration to the user and warn them if it seems to be missing important directories (like `examples/`) or if it includes unsupported extensions (only `.mo`, `.did`, `.md`, and `.toml` are allowed for `mops publish`).
@@ -110,7 +110,7 @@ jobs:
       # Alternative (ONLY if `pocket-ic` is already in `mops.toml` [toolchain]
       # AND the user explicitly prefers it, e.g. for CI speed): drop the
       # `dfx` step above and install pocket-ic instead, then invoke
-      # `mops bench --replica pocket-ic` below.
+      # `mops bench` below.
       # - name: Make sure pocket-ic is installed
       #   run: mops toolchain bin pocket-ic
 
@@ -118,7 +118,7 @@ jobs:
         run: mops test  # Omit this step if the package has no tests. Note: `mops test` does not use pocket-ic.
 
       - name: Run benchmarks
-        run: mops bench  # Omit this step if the package has no benchmarks. Use `mops bench --replica pocket-ic` only when using the pocket-ic alternative above.
+        run: mops bench  # Omit this step if the package has no benchmarks.
 
   fmt:
     name: Formatting Check
@@ -235,7 +235,7 @@ If the repository contains end-to-end tests (e.g., in `test/e2e` or similar), ad
           - run: mops bench
     ```
 
-    The only exception is when `pocket-ic` is **already** in `mops.toml` `[toolchain]` (user opt-in). In that case you *may* skip installing `dfx` and instead install pocket-ic and invoke `mops bench --replica pocket-ic` — but only do so when the user explicitly prefers it (e.g. for CI runtime). Otherwise still prefer `dfx` even when pocket-ic is configured.
+    The only exception is when `pocket-ic` is **already** in `mops.toml` `[toolchain]` (user opt-in). In that case you *may* skip installing `dfx` and instead install pocket-ic and invoke `mops bench` — but only do so when the user explicitly prefers it (e.g. for CI runtime). Otherwise still prefer `dfx` even when pocket-ic is configured.
 
     Note: `mops test` does not use `pocket-ic` (it runs via the Motoko interpreter or WASI), so the choice of benchmark runtime only affects `mops bench`.
 
@@ -246,7 +246,7 @@ If the repository contains end-to-end tests (e.g., in `test/e2e` or similar), ad
           - name: Start dfx
             run: dfx start --background --clean
     ```
-3. **`dfx` installation cost.** Installing `dfx` adds a noticeable amount of CI time, but it is the preferred runtime for `mops bench` (more accurate, more reliable than `pocket-ic`). Do not avoid `dfx` for benchmarks just because of install time. Always use `dfinity/setup-dfx@main` (the official action) rather than shell scripts. Only skip the `dfx` install when the job does not run `mops bench`, has no canisters/E2E/Candid needs, or when `pocket-ic` is explicitly configured in `[toolchain]` and the user has opted into the `mops bench --replica pocket-ic` path.
+3. **`dfx` installation cost.** Installing `dfx` adds a noticeable amount of CI time, but it is the preferred runtime for `mops bench` (more accurate, more reliable than `pocket-ic`). Do not avoid `dfx` for benchmarks just because of install time. Always use `dfinity/setup-dfx@main` (the official action) rather than shell scripts. Only skip the `dfx` install when the job does not run `mops bench`, has no canisters/E2E/Candid needs, or when `pocket-ic` is explicitly configured in `[toolchain]`.
 4. **Not showing versions.** Always include a step to show `mops` and `moc` versions. This helps in debugging CI issues.
 5. **Not using parallel jobs.** Running formatting and tests in the same job is slower. Use separate jobs so GitHub runs them in parallel.
 6. **Including `mops test` when no tests exist.** Always check if the package has a `test/` directory with `*.test.mo` files. If not, omit the `mops test` step to avoid CI failures.

@@ -245,6 +245,13 @@ public type Request = {
 };
 ```
 
+### 9. `///` Example Code Should Actually Compile
+
+Doc-string examples are documentation, but they are copied by users and easily drift from the real API. They are NOT compiled by `mops test`, so verify them yourself: paste each example into a scratch `.mo` file (with the imports a user would have) and run `moc --check`. Two recurring traps for generic collections:
+
+- **Literal coercion fails through a generic parameter (`M0096`).** A `"..."` literal passed to a generic `add<K>` instantiated at `K = Blob` (e.g. `coll.add("abc")` where `coll : Coll<Blob>`) is inferred as `Text` and won't coerce to `Blob`. For a generic module, write examples with a key type whose literals are native (e.g. `Text`), or annotate. A non-generic module specialized to `Blob` takes `Blob` literals fine.
+- **Implicit `compare` needs the type's module imported (`M0230`).** An example relying on the implicit comparator (`e.add(key)`) only compiles if the key type's module is imported; show that import (e.g. `import Text "mo:core/Text";`) in the example.
+
 ## Workflow
 
 1. Inventory public declarations:

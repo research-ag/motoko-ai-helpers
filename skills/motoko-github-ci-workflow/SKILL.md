@@ -150,7 +150,51 @@ jobs:
 
 ### Step 3 — Handle Examples and Canisters (Optional)
 
-#### If the repo has examples (or example) that are canisters:
+#### Preferred for a package: a self-contained `examples/` mops subproject built with `mops` alone
+
+A library package can ship examples that compile as real canisters **without** `dfx` or `icp`. Make `examples/` its own mops project that depends on the package via a **local path dependency** and declares each example in a `[canisters]` section; then CI just runs `mops check` (type-check) and `mops build` (compile to Wasm). This keeps example-only type usage (e.g. `Principal`) out of the package's own test suite while still compiling it.
+
+`examples/mops.toml` — this is a **canister project, not a package**, so it has **no `[package]` and no `[requirements]` section** (those belong only to a publishable package):
+```toml
+[canisters]
+demo = "src/Demo.mo"        # actor file -> built to Wasm by `mops build`
+
+[dependencies]
+core = "2.5.0"
+my-package = "../"          # local path dep; matches /^(\.?\.)?\//
+
+[toolchain]
+moc = "1.6.0"               # pin the compiler for building/checking
+```
+
+CI job:
+```yaml
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: latest
+      - uses: caffeinelabs/setup-mops@v1
+      - working-directory: examples
+        run: |
+          mops toolchain init
+          mops install
+      - name: Type-check examples
+        working-directory: examples
+        run: mops check
+      - name: Build examples
+        working-directory: examples
+        run: mops build
+```
+
+Notes:
+- `mops build` writes artifacts under `examples/.mops/.build/` (already covered by the usual `.mops` gitignore). No `dfx.json`/`icp.yaml` needed.
+- A `persistent actor` holding the package's collection works when the collection type is composed of stable types (no `pre/postupgrade` hooks needed).
+
+#### If the repo has examples (or example) that are canisters built with `dfx`/`icp`:
 Add a step to the `test` job (or a new job) to build examples. Use the tool already present in the project or `icp-cli` for new ones. Omit this section if no examples/canisters need building.
 
 ```yaml

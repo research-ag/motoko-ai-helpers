@@ -31,6 +31,10 @@ An extensible guide for speeding up Motoko code safely and predictably. It focus
 
 - Verify after each change
   - Rebuild, run unit tests/property checks, then benchmark representative inputs.
+  - Keep `[optimize]` (and its pinned `[toolchain] wasm-opt` version) identical between the before/after runs you're
+    comparing — `mops bench` only runs `wasm-opt` when `[optimize]` is present in `mops.toml`, so a bench "improvement"
+    that's really just optimizer noise (or the section appearing/disappearing) will masquerade as a code change. See
+    skills/benchmarks-generation/SKILL.md.
 
 ## Technique Areas Overview
 
@@ -433,7 +437,7 @@ Don't trust the compiler to group `^b1 & d1` as `(^b1) & d1` if you haven't chec
 These optimizations are easy to mis-transcribe (160 round lines for RIPEMD-160 alone). Before claiming success:
 
 1. **Full test suite must pass.** Hash test vectors are non-negotiable — a single wrong rotation amount, K constant, or message-word index will corrupt all outputs but may still produce stable-looking bytes.
-2. **Benchmark against the previous version.** If instructions don't drop ≥1.5× and GC doesn't drop ≥2× at large inputs, something is wrong with the buffering or rounds are still allocating.
+2. **Benchmark against the previous version.** If instructions don't drop ≥1.5× and GC doesn't drop ≥2× at large inputs, something is wrong with the buffering or rounds are still allocating. Make sure `[optimize]`/`[toolchain] wasm-opt` (see Quick Wins above) is the same for both runs — otherwise you're measuring the optimizer, not your change.
 3. **Benchmark against an external reference** if one exists (e.g., another mops package). Confirms you're not just shuffling cost around.
 
 ### When NOT To Apply These Patterns

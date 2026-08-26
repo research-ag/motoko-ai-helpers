@@ -71,6 +71,7 @@ Each skill is a directory under `skills/**/SKILL.md` with frontmatter that the C
 - motoko-doc-strings — Add `///` doc strings to public objects in Motoko modules so that `mo-doc` produces useful HTML/Markdown documentation. Covers placement rules, formatting, code examples, common pitfalls, and a verification workflow.
 - motoko-benchmarks-generation — How to write benchmarks in Motoko using bench‑helper. Covers project setup (mops.toml), bench file layout in bench/*.bench.mo, the Bench.Schema rows/cols model, and safe patterns for encode/decode, hashing, crypto, and allocation benches.
 - motoko-compiler-warnings-fixes — Guidelines for fixing Motoko compiler warnings (moc). Use when asked to fix, suppress, or clean up Motoko compiler warnings from `dfx build --check` or `moc --check`.
+- motoko-class-to-static-module-migration — Convert class-based mops packages into static module-based packages whose values are plain records, stable-storable, and usable via dot-notation. Migrates classes one at a time, bottom-up along the dependency tree, gated by `mops test`, `mops bench`, and example builds.
 
 ## Authoring New Skills
 

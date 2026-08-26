@@ -122,6 +122,12 @@ When scanning for operators or commas, skip over string literals (`"..."`) inclu
 
 `42.toText()` and `0xFF.toNat()` are valid Motoko — numeric literals can receive dot notation directly. No parens needed.
 
+### 7. `async` and `async*` Functions on Custom Record Types
+
+In Motoko (as of v1.x), the compiler's module dot-notation resolver does not support/resolve dot notation (`self.func(...)`) for functions returning `async` or `async*` on custom plain record types (even when the type's module is correctly imported and in scope). 
+
+**Rule:** For any asynchronous functions (`async` or `async*`) on custom record types, do NOT attempt to use dot-notation. Instead, skip converting them and keep/use explicit module-level notation (e.g., `Module.func(self, ...)`). Only use dot notation for synchronous functions on these custom record types.
+
 ## Function Catalog (core 2.2.0)
 
 ### Zero-Extra-Arg Functions (self only)

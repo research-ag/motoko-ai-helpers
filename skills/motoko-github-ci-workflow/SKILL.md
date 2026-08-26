@@ -91,7 +91,7 @@ jobs:
         uses: caffeinelabs/setup-mops@v1
 
       - name: Make sure moc is installed
-        run: mops toolchain init && mops toolchain bin moc
+        run: mops toolchain bin moc
 
       - name: Show versions
         run: |
@@ -112,7 +112,7 @@ jobs:
       # `dfx` step above and install pocket-ic instead, then invoke
       # `mops bench --replica pocket-ic` below.
       # - name: Make sure pocket-ic is installed
-      #   run: mops toolchain init && mops toolchain bin pocket-ic
+      #   run: mops toolchain bin pocket-ic
 
       - name: Run tests
         run: mops test  # Omit this step if the package has no tests. Note: `mops test` does not use pocket-ic.

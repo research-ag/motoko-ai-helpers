@@ -401,9 +401,7 @@ jobs:
         with:
           node-version: latest
       - uses: caffeinelabs/setup-mops@v1
-      - run: |
-          mops toolchain init
-          mops install
+      - run: mops install
       - run: mops test   # Omit if no tests
       # Benchmarks: install dfx (default) or pocket-ic if already in
       # [toolchain]. Omit both steps if there are no benchmarks.

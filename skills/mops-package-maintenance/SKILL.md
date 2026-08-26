@@ -32,10 +32,22 @@ These rules are referenced from individual steps. Read them once.
   with `mops toolchain use pocket-ic <version>` (mops's own error
   names a concrete version, e.g. `15.0.0`) the same way `[toolchain]
   moc` is actively managed.
+- **Benchmarks should measure optimized Wasm — configure `[optimize]`
+  and pin `wasm-opt`.** `mops bench` (and `mops build`) only run
+  Binaryen's `wasm-opt` when an `[optimize]` section exists in
+  `mops.toml` — even an empty `[optimize]` activates it, at the
+  default `level = "O3"` / `keep-names = true`. **Without it, no
+  optimization runs at all** and benchmark numbers reflect raw
+  compiler output, not what actually ships in a production canister.
+  Like `pocket-ic`, `[optimize]` requires an explicit `[toolchain]
+  wasm-opt` pin or the build fails before compiling. **If the package
+  has benchmarks and `[optimize]` is missing, add both** during
+  maintenance (see Step 5) — don't leave this for the user to notice.
 - **Hands-off fields in `mops.toml`:** never auto-edit `[package] files`
   or auto-add entries to `[toolchain]`. Report and warn instead.
-  **Exception: `[toolchain] pocket-ic`** — see the bullet above; add it
-  when benchmarks require it, same as `moc`.
+  **Exceptions: `[toolchain] pocket-ic` and `[optimize]` /
+  `[toolchain] wasm-opt`** — see the two bullets above; add them when
+  benchmarks require it, same as `moc`.
 - **CHANGELOG only lists consumer-visible bumps:** `[dependencies]`
   and `[requirements]`. Never list `[toolchain]` or
   `[dev-dependencies]`.
@@ -57,6 +69,9 @@ These rules are referenced from individual steps. Read them once.
   there's no dfx-bundled fallback, the pin is mandatory)
 - `pocket-ic` (bench runtime; pinned via `[toolchain] pocket-ic` when
   the package has benchmarks — see Key Conventions)
+- `wasm-opt` (Binaryen; only runs when `[optimize]` is set in
+  `mops.toml`, and only then requires a `[toolchain] wasm-opt` pin —
+  see Key Conventions)
 - `dfx` (DFINITY SDK; optional — only needed for building canisters
   or examples, not for `mops bench`)
 - `node` >= 22 / `npm`. Verify with `node --version`.
@@ -262,7 +277,41 @@ API, adapt the source, and re-run. Note any non-trivial changes
 
 ### Step 5 — Run benchmarks
 
+If the package has benchmarks (a `bench/` directory with
+`*.bench.mo` files), **before** running `mops bench`, make sure the
+bench toolchain is fully configured. mops CLI v3.0.0 requires both of
+the following to be pinned explicitly, or `mops bench` fails outright
+(see Key Conventions):
+
+1. **`[toolchain] pocket-ic`** — if missing, add it:
+   ```bash
+   mops toolchain use pocket-ic <version>   # mops's own error names one, e.g. 15.0.0
+   ```
+2. **`[optimize]` + `[toolchain] wasm-opt`** — if `[optimize]` is
+   missing from `mops.toml`, **add it now**, don't just flag it. An
+   empty section is enough (defaults to `level = "O3"`,
+   `keep-names = true`):
+   ```toml
+   [optimize]
+
+   [toolchain]
+   wasm-opt = "<version>"
+   ```
+   Pin the version the same way as `pocket-ic`:
+   ```bash
+   mops toolchain use wasm-opt <version>   # or: mops toolchain info wasm-opt
+   ```
+   Without `[optimize]`, `mops bench` silently measures unoptimized
+   Wasm — not what the CHANGELOG's benchmark numbers should represent.
+   If you add `[optimize]` to a package that didn't have it before,
+   say so in the CHANGELOG (Step 6): the resulting shift in bench
+   numbers is a measurement-methodology change, not a code
+   regression/improvement.
+
+Then run:
+
 ```bash
+mops install   # picks up any new [toolchain] pins
 mops bench
 ```
 
@@ -392,7 +441,10 @@ pocket-ic` must be pinned (per Key Conventions) and installed in CI
 with `mops toolchain bin pocket-ic` before `mops bench` — PocketIC is
 the only bench runtime as of mops CLI v3.0.0. `mops bench` starts and
 stops its own PocketIC instance — never add a manual `dfx start
---background` step; remove any you find.
+--background` step; remove any you find. If `mops.toml` has an
+`[optimize]` section (it should, per Key Conventions — added in
+Step 5 if missing), also install `wasm-opt` in CI via `mops
+toolchain bin wasm-opt` before `mops bench`.
 
 ```yaml
 name: CI
@@ -421,6 +473,10 @@ jobs:
       # are no benchmarks.
       - name: Make sure pocket-ic is installed
         run: mops toolchain bin pocket-ic
+      # Only if mops.toml has an [optimize] section (see Key
+      # Conventions / Step 5) — otherwise omit this step too.
+      - name: Make sure wasm-opt is installed
+        run: mops toolchain bin wasm-opt
       - run: mops bench
 
   fmt:
@@ -506,6 +562,11 @@ Ready for review. Run `git push -u origin HEAD` to push.
 3. **Lock file drift.** Always run `mops install` after editing
    `mops.toml`. Never hand-edit `mops.lock`.
 4. **CHANGELOG ordering.** Newest at the top.
+5. **Benchmarking without `[optimize]`.** If a package has benchmarks
+   but no `[optimize]` section, `mops bench` silently measures
+   unoptimized Wasm (see Key Conventions / Step 5). Don't skip adding
+   it just because `mops bench` "already works" without it — working
+   and representative are different things.
 
 ## Verify It Works
 

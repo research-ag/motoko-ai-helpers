@@ -20,6 +20,21 @@ If you already have a `mops.toml`, just add `bench-helper` under `[dev-dependenc
 If your project still uses `mo:base` instead of `mo:core`, you can keep it — benches themselves can be written with
 `mo:base` without affecting your runtime canisters.
 
+**Make sure `[optimize]` is configured.** `mops bench` only runs Binaryen's `wasm-opt` if `mops.toml` has an
+`[optimize]` section — even an empty one activates it (default `level = "O3"`). Without it, `mops bench` measures
+unoptimized Wasm, which doesn't reflect what a production canister actually runs. `[optimize]` requires a pinned
+`[toolchain] wasm-opt` version, e.g.:
+
+```toml
+[optimize]
+
+[toolchain]
+wasm-opt = "132"   # mops toolchain use wasm-opt <version>
+```
+
+The `motoko-mops-package-maintenance` skill adds this automatically for packages with benchmarks during a
+maintenance pass — if it hasn't run yet, add it yourself before trusting bench numbers.
+
 ## Directory & File Conventions
 
 - Put benches under `bench/` at the repo root.
